@@ -1,0 +1,38 @@
+.stepper-wrap {
+    width: 100%;
+    padding: 14px;
+    display: grid;
+    gap: 12px;
+}
+
+.step-chip {
+    display: inline-flex;
+    color: #374151;
+    font-weight: 700;
+    font-size: 0.9rem;
+    letter-spacing: 0.02em;
+}
+
+.dot-stepper {
+    display: inline-flex;
+    align-items: center;
+    gap: 10px;
+    padding: 0 8px;
+}
+
+.dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: #424242;
+    opacity: 0.3;
+    transition: width 150ms ease, height 150ms ease, opacity 150ms ease;
+}
+
+.dot.active {
+    width: 16px;
+    height: 8px;
+    border-radius: 4px;
+    background: #424242;
+    opacity: 1;
+}

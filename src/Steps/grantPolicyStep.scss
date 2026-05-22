@@ -1,0 +1,47 @@
+.grant-policy-form {
+    display: flex;
+    flex-direction: column;
+    gap: 20px;
+    padding-top: 12px;
+    max-width: 720px;
+}
+
+.grant-policy-policy-note {
+    font-size: 12px;
+    color: var(--mui-palette-error-main);
+}
+
+.grant-policy-target-section {
+    z-index: 2;
+    position: relative;
+}
+
+.grant-policy-target-section-spaced {
+    margin-bottom: 12px;
+}
+
+.grant-policy-required-asterisk {
+    color: var(--mui-palette-error-main);
+    margin-left: 2px;
+}
+
+.grant-policy-help-text {
+    color: var(--mui-palette-text-secondary);
+    font-weight: 400;
+    font-size: 12px;
+}
+
+.grant-policy-list {
+    border: 1px solid var(--mui-palette-divider);
+    max-height: 340px;
+    overflow-y: auto;
+}
+
+.entity-selection-page-count {
+    display: block;
+}
+
+.select-all-option {
+    border-bottom: 1px solid var(--mui-palette-divider);
+    margin-bottom: 4px;
+}
