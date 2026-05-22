@@ -1,0 +1,46 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "Debug Electron Main",
+      "type": "node",
+      "request": "launch",
+      "preLaunchTask": "Prepare Debug Environment",
+      "runtimeExecutable": "${workspaceFolder}/node_modules/.bin/electron",
+      "runtimeArgs": [
+        "--remote-debugging-port=9222",
+        "."
+      ],
+      "cwd": "${workspaceFolder}",
+      "env": {
+        "VITE_DEV_SERVER_URL": "http://localhost:5173"
+      },
+      "outFiles": [
+        "${workspaceFolder}/dist-electron/**/*.js"
+      ],
+      "sourceMaps": true,
+      "stopOnEntry": false,
+      "skipFiles": [
+        "<node_internals>/**",
+        "**/node_modules/**",
+        "${workspaceFolder}/node_modules/electron/**/*.js"
+      ]
+    },
+    {
+      "name": "Debug Renderer",
+      "type": "chrome",
+      "request": "attach",
+      "port": 9222,
+      "webRoot": "${workspaceFolder}"
+    }
+  ],
+  "compounds": [
+    {
+      "name": "Launch Electron + Attach Renderer",
+      "configurations": [
+        "Debug Electron Main",
+        "Debug Renderer"
+      ]
+    }
+  ]
+}

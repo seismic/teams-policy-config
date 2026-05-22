@@ -1,0 +1,45 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "Run Vite Dev Server",
+      "type": "shell",
+      "command": "npm run dev:renderer",
+      "isBackground": true,
+      "problemMatcher": {
+        "owner": "custom",
+        "pattern": {
+          "regexp": "^(?!x)x$",
+          "message": 0
+        },
+        "background": {
+          "activeOnStart": true,
+          "beginsPattern": "vite v",
+          "endsPattern": "ready in"
+        }
+      }
+    },
+    {
+      "label": "Prepare Debug Environment",
+      "dependsOn": [
+        "Build Electron Main",
+        "Run Vite Dev Server"
+      ],
+      "dependsOrder": "parallel"
+    },
+    {
+      "label": "Build Electron Main",
+      "type": "shell",
+      "command": "npm run build:main",
+      "group": "build",
+      "problemMatcher": []
+    },
+    {
+      "label": "Build App",
+      "type": "shell",
+      "command": "npm run build",
+      "group": "build",
+      "problemMatcher": []
+    }
+  ]
+}

@@ -1,0 +1,224 @@
+.app-container hr {
+    border: none;
+    border-top: 1.5px solid var(--mui-palette-divider, #e0e0e0);
+    margin: 8px 0;
+    background: none;
+    height: 0;
+}
+
+.app-shell {
+    min-height: 100vh;
+    padding: 28px;
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) 360px;
+    gap: 40px;
+    background: var(--mui-palette-background-paper, #ffffff);
+    overflow-x: hidden;
+    overflow-y: auto;
+}
+
+.app-container {
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+    min-width: 0;
+}
+
+.panel {
+    padding: 12px;
+    display: flex;
+    flex-direction: column;
+    gap: 24px;
+}
+
+.panel-title {
+    margin: 0;
+    outline: none;
+    letter-spacing: -0.01em;
+    color: var(--mui-palette-text-primary);
+}
+
+.subtitle {
+    margin: 8px 0 0;
+    font-size: 0.95rem;
+    line-height: 1.45;
+    color: var(--mui-palette-text-secondary);
+}
+
+.wizard-header-layout {
+    display: flex;
+    align-items: stretch;
+}
+
+.status-area {
+    min-height: 48px;
+    display: grid;
+    gap: 8px;
+}
+
+.message,
+.success-text {
+    margin: 0;
+    border-radius: 10px;
+    padding: 10px 12px;
+    font-size: 0.92rem;
+    line-height: 1.35;
+}
+
+.message {
+    border: 1px solid color-mix(in srgb, var(--mui-palette-info-main) 35%, transparent);
+    background: color-mix(in srgb, var(--mui-palette-info-main) 8%, #ffffff 92%);
+    color: var(--mui-palette-text-primary);
+}
+
+.success-text {
+    border: 1px solid color-mix(in srgb, var(--mui-palette-success-main) 35%, transparent);
+    background: color-mix(in srgb, var(--mui-palette-success-main) 10%, #ffffff 90%);
+    color: color-mix(in srgb, var(--mui-palette-success-main) 90%, #0b3d20 10%);
+    font-weight: 600;
+}
+
+.device-code-box {
+    font-size: 14px;
+    line-height: 20px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-wrap: wrap;
+}
+
+.device-code-value {
+    font-weight: 700;
+    font-size: 14px;
+    line-height: 20px;
+    font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace;
+}
+
+.copy-status {
+    font-size: 12px;
+    color: var(--mui-palette-text-secondary);
+}
+
+.step-content {
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+}
+
+.radio-row {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: 10px;
+}
+
+.logs {
+    border: 1px solid var(--mui-palette-divider);
+    border-radius: 14px;
+    background: var(--mui-palette-background-default);
+    padding: 24px;
+    display: flex;
+    flex-direction: column;
+    align-self: start;
+    min-height: calc(100vh - 56px);
+    max-height: calc(100vh - 56px);
+    gap: 24px;
+    overflow: hidden;
+    box-shadow: 0 10px 24px rgba(15, 23, 42, 0.06);
+    position: sticky;
+    top: 28px;
+}
+
+.logs h3 {
+    margin: 0;
+}
+
+.logs-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+}
+
+.logs-body {
+    flex: 1 1 auto;
+    min-height: 0;
+    overflow-y: auto;
+    overflow-x: hidden;
+    background: color-mix(in srgb, var(--mui-palette-background-default) 90%, #ffffff 10%);
+}
+
+.logs pre {
+    margin: 0;
+    white-space: pre-wrap;
+    word-break: break-word;
+    font-size: 12px;
+    line-height: 18px;
+    color: var(--mui-palette-text-primary);
+}
+
+.step-action-buttons {
+    display: flex;
+    gap: 12px;
+}
+
+.success-indicator {
+    margin-left: 10px;
+    color: #2e7d32;
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+}
+
+@media (max-width: 1120px) {
+    .app-shell {
+        grid-template-columns: minmax(0, 1fr);
+        padding: 20px;
+        height: auto;
+        min-height: 100vh;
+        overflow: visible;
+    }
+
+    .logs {
+        order: 3;
+        position: static;
+        min-height: 0;
+        max-height: none;
+    }
+
+    .logs-body {
+        max-height: 220px;
+    }
+}
+
+@media (max-width: 820px) {
+    .app-shell {
+        padding: 14px;
+        gap: 14px;
+    }
+
+    .app-header {
+        flex-direction: column;
+        align-items: flex-start;
+    }
+
+    .panel {
+        padding: 16px;
+    }
+
+    .actions {
+        justify-content: stretch;
+    }
+
+    .actions button {
+        flex: 1 1 0;
+    }
+
+    .logs {
+        top: 14px;
+    }
+}

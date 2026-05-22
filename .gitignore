@@ -1,0 +1,16 @@
+logs/
+# Ignore node modules and build output
+node_modules
+
+# Ignore build output and logs
+dist
+dist-electron
+*.log
+
+# Ignore environment files
+.env
+.DS_Store
+
+# AI generated files
+.claude/
+
