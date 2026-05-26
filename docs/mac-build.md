@@ -250,3 +250,4 @@ npm run dist:mac
 - [Setup commands](setup-commands.md)
 - [PowerShell commands reference](powershell-commands-reference.md)
 - [Usage documentation](usage-doc.md)
+

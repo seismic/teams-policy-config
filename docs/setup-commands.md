@@ -265,4 +265,3 @@ brew install azure-cli
 	- page size from `AZ_LIST_LIMIT`
 - If counts fail but list succeeds, UI still works with fallback total based on returned array length.
 - Windows-specific parser behavior can break complex command strings embedded in PowerShell; using argument-based CLI execution is generally more reliable.
-
