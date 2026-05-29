@@ -32,7 +32,7 @@ npm start
    | `VITE_APP_ID` | Azure App ID **(mandatory)** | _(none)_ |
    | `VITE_DEFAULT_POLICY_NAME` | Teams meeting policy name | `Teams-Meeting-Policy` |
    | `VITE_ORG_NAME` | Your organisation name | _(empty)_ |
-   | `VITE_TECHNICAL_DOCUMENTATION_LINK` | Link shown in the UI | Azure CLI docs URL |
+   | `VITE_TECHNICAL_DOCUMENTATION_LINK` | Link shown in the UI | `https://docs.microsoft.com/en-us/azure/azure-cli-install` |
 
 ## Build
 
