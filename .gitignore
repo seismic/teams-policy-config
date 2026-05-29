@@ -9,8 +9,8 @@ dist-electron
 
 # Ignore environment files
 .env
+.env.*
 .DS_Store
 
 # AI generated files
 .claude/
-

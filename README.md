@@ -18,20 +18,21 @@ npm start
 
 ## Set environment
 
-1. Copy the example environment file:
-   ```bash
-   cp .env.example .env
-   ```
-2. Open `.env` and fill in the required values. `VITE_APP_ID` is **mandatory** — the app will not work without it:
+1. Create a `.env` file in the project root and add the following variables:
    ```env
    VITE_APP_ID=<your-azure-app-id>
+   VITE_DEFAULT_POLICY_NAME=Teams-Meeting-Policy
+   VITE_ORG_NAME=
+    VITE_TECHNICAL_DOCUMENTATION_LINK=https://docs.microsoft.com/en-us/azure/azure-cli-install
    ```
-3. Optionally update the other variables:
+   `VITE_APP_ID` is **mandatory** — the app will not work without it.
+
    | Variable | Description | Default |
    |---|---|---|
+   | `VITE_APP_ID` | Azure App ID **(mandatory)** | _(none)_ |
    | `VITE_DEFAULT_POLICY_NAME` | Teams meeting policy name | `Teams-Meeting-Policy` |
    | `VITE_ORG_NAME` | Your organisation name | _(empty)_ |
-   | `VITE_TECHNICAL_DOCUMENTATION_LINK` | Link shown in the UI | Azure CLI docs URL |
+   | `VITE_TECHNICAL_DOCUMENTATION_LINK` | Link shown in the UI | `https://docs.microsoft.com/en-us/azure/azure-cli-install` |
 
 ## Build
 

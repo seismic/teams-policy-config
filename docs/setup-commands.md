@@ -70,7 +70,7 @@ Used in `getPolicyByName()`.
 ### Create policy
 
 ```powershell
-$policy = New-CsApplicationAccessPolicy -Identity "<policyName>" -AppIds "8628b04c-a0f9-458c-b88c-ebc68652cf57" -Description "MS teams access policy for Teams Meeting Ingest"
+$policy = New-CsApplicationAccessPolicy -Identity "<policyName>" -AppIds "<VITE_APP_ID>" -Description "MS teams access policy for Teams Meeting Ingest"
 $policy | Select-Object Identity, Description, AppIds | ConvertTo-Json -Depth 5 -Compress
 ```
 
@@ -265,4 +265,3 @@ brew install azure-cli
 	- page size from `AZ_LIST_LIMIT`
 - If counts fail but list succeeds, UI still works with fallback total based on returned array length.
 - Windows-specific parser behavior can break complex command strings embedded in PowerShell; using argument-based CLI execution is generally more reliable.
-

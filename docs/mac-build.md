@@ -209,9 +209,11 @@ The file you share with end users is the **`.dmg`** file.
 2. Drag **Teams Policy Config.app** into the **Applications** folder.
 3. Launch the app from Applications.
    - If the build is unsigned, the first launch will be blocked by Gatekeeper. Right-click the app → **Open** → confirm the dialog.
-4. Smoke-test the app:
-   - Click **Create** with a sample folder/file name.
-   - Confirm the folder + file are created and the file contains `Hello Electron`.
+4. Smoke-test the app by walking through the setup wizard:
+   - **Step 1 – Setup Environment:** The app checks for PowerShell (`pwsh`) and Azure CLI. If either is missing, install them using the buttons provided, then verify both show as installed before proceeding.
+   - **Step 2 – Azure Login:** Click **Login** and follow the device-code prompt. A browser tab will open — sign in with your Azure account. Return to the app and confirm the step shows as complete.
+   - **Step 3 – Grant Policy:** Select target type (user, group, or global), enter the policy name (default: `Teams-Meeting-Policy`). For user/group targeting, add at least one user or group. Click **Apply** and confirm the results summary shows the expected policy assignment.
+   - **Step 4 – Complete:** Verify the wizard reaches the completion screen without errors.
 
 > The app spawns `pwsh` (PowerShell Core) for its file operations. If PowerShell Core is not installed on the test machine, install it via Homebrew: `brew install --cask powershell`.
 
@@ -248,3 +250,4 @@ npm run dist:mac
 - [Setup commands](setup-commands.md)
 - [PowerShell commands reference](powershell-commands-reference.md)
 - [Usage documentation](usage-doc.md)
+

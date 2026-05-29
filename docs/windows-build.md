@@ -223,9 +223,11 @@ The file you share with end users is the **`Teams Policy Config Setup <version>.
 2. If SmartScreen warns about an unknown publisher, click **More info → Run anyway** (only for unsigned/internal builds).
 3. Choose an install location and complete the installer.
 4. Launch **Teams Policy Config** from the Start Menu or desktop shortcut.
-5. Smoke-test the app:
-   - Click **Create** with a sample folder/file name.
-   - Confirm the folder + file are created and the file contains `Hello Electron`.
+5. Smoke-test the app by walking through the setup wizard:
+   - **Step 1 – Setup Environment:** The app checks for PowerShell and Azure CLI. If either is missing, install them using the buttons provided, then verify both show as installed before proceeding.
+   - **Step 2 – Azure Login:** Click **Login** and follow the device-code prompt. A browser tab will open — sign in with your Azure account. Return to the app and confirm the step shows as complete.
+   - **Step 3 – Grant Policy:** Select target type (user, group, or global), enter the policy name (default: `Teams-Meeting-Policy`). For user/group targeting, add at least one user or group. Click **Apply** and confirm the results summary shows the expected policy assignment.
+   - **Step 4 – Complete:** Verify the wizard reaches the completion screen without errors.
 
 > The app spawns PowerShell for its file operations. Windows ships with **Windows PowerShell 5.1**, which is sufficient. For the modern cross-platform shell, install PowerShell 7+ via:
 >
@@ -281,3 +283,4 @@ npm run dist:win
 - [Setup commands](setup-commands.md)
 - [PowerShell commands reference](powershell-commands-reference.md)
 - [Usage documentation](usage-doc.md)
+
