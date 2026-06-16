@@ -1,5 +1,12 @@
 /// <reference types="vite/client" />
 
+interface GrantPolicyPayload {
+	policyName: string;
+	type: 'user' | 'group';
+	users?: string[];
+	groups?: string[];
+}
+
 interface ElectronApiResult {
 	success: boolean;
 	error?: string;
@@ -18,7 +25,7 @@ interface Window {
 	electronAPI: {
 		setupEnvironment: () => Promise<ElectronApiResult>;
 		startAzLogin: () => Promise<ElectronApiResult>;
-		grantPolicy: (data: any) => Promise<ElectronApiResult>;
+		grantPolicy: (data: GrantPolicyPayload) => Promise<ElectronApiResult>;
 		searchUsers: (searchText: string, page?: number) => Promise<ElectronApiResult>;
 		resolveUsersByEmails: (emails: string[]) => Promise<ElectronApiResult>;
 		searchGroups: (searchText: string, page?: number) => Promise<ElectronApiResult>;

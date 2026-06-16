@@ -20,6 +20,16 @@ const POLICY_NAME_RE = /^[A-Za-z0-9 ._-]{1,64}$/;
 // Azure AD object id (GUID), e.g. 8628b04c-a0f9-458c-b88c-ebc68652cf57
 const GUID_RE = /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/;
 
+// Generous upper bound on free-text search queries; rejects obviously oversized payloads.
+const SEARCH_TEXT_MAX_LEN = 200;
+
+// Max email addresses accepted per batch request.
+export const EMAIL_BATCH_LIMIT = 500;
+
+// Minimal structural email check — rejects obvious non-emails (local@domain.tld shape).
+// Full RFC 5322 validation happens server-side; this guards the IPC boundary.
+const EMAIL_RE = /^[^\s@]{1,64}@[^\s@]{1,255}\.[^\s@]{1,63}$/;
+
 /**
  * Quotes a value as a PowerShell single-quoted string literal.
  *
@@ -53,6 +63,14 @@ export function assertPolicyName(value: unknown): string {
 
 export function isValidGuid(value: unknown): value is string {
     return typeof value === 'string' && GUID_RE.test(value.trim());
+}
+
+export function isValidSearchText(value: unknown): value is string {
+    return typeof value === 'string' && value.length <= SEARCH_TEXT_MAX_LEN;
+}
+
+export function isValidEmail(value: unknown): value is string {
+    return typeof value === 'string' && EMAIL_RE.test(value) && value.length <= 320;
 }
 
 /**

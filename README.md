@@ -23,7 +23,8 @@ npm start
    VITE_APP_ID=<your-azure-app-id>
    VITE_DEFAULT_POLICY_NAME=Teams-Meeting-Policy
    VITE_ORG_NAME=
-    VITE_TECHNICAL_DOCUMENTATION_LINK=https://docs.microsoft.com/en-us/azure/azure-cli-install
+   VITE_TECHNICAL_DOCUMENTATION_LINK=https://docs.microsoft.com/en-us/azure/azure-cli-install
+
    ```
    `VITE_APP_ID` is **mandatory** — the app will not work without it.
 

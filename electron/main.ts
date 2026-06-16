@@ -6,7 +6,7 @@ import { grantAccessPolicy, runPreLoginPowerShellTasks, SetupResult } from './te
 import { createEnterpriseLogger } from './util/logger/enterprise-logger';
 import { installAzureCli, installHomebrew, installPowerShell } from './install-cli';
 import { searchGroups, searchUsers, searchUsersByEmails } from './commands';
-import { isValidGuid, isValidPolicyName } from './util/validate';
+import { EMAIL_BATCH_LIMIT, isValidEmail, isValidGuid, isValidPolicyName, isValidSearchText } from './util/validate';
 import {
   isAzCliInstalled,
   isPowerShellInstalled,
@@ -280,7 +280,23 @@ ipcMain.handle('grant-policy', async (_event, data) => {
   elog.addSummary('Grant policy operation started');
 
   try {
+    // Validate payload shape before destructuring — never trust renderer-supplied data
+    if (data === null || typeof data !== 'object' || Array.isArray(data)) {
+      elog.error('Invalid payload: expected a plain object.');
+      elog.addSummary('Failed: malformed payload.');
+      elog.finish(false);
+      return { success: false, error: 'invalid-payload', message: 'Malformed request payload.' };
+    }
+
     const { policyName, type, users, groups } = data;
+
+    // Allowlist the type field — never allow arbitrary strings to reach the grant logic
+    if (type !== 'user' && type !== 'group') {
+      elog.error('Invalid type field in payload.');
+      elog.addSummary('Failed: invalid type field.');
+      elog.finish(false);
+      return { success: false, error: 'invalid-type', message: 'type must be "user" or "group".' };
+    }
 
     if (!isValidPolicyName(policyName)) {
       log('Invalid policy name provided.');
@@ -439,6 +455,11 @@ ipcMain.handle('search-users', async (_event, payload: { searchText?: string; pa
   const elog = createAppLogger();
   const searchText = typeof payload === 'string' ? payload : payload?.searchText || '';
   const page = typeof payload === 'string' ? 0 : payload?.page ?? 0;
+
+  if (!isValidSearchText(searchText)) {
+    return { success: false, error: 'invalid-search-text', message: 'Search text exceeds maximum allowed length.', data: { users: [], total: 0 } };
+  }
+
   elog.log(`Searching users — query: "${searchText}", page: ${page}`);
   elog.addSummary(`Search users: query="${searchText}" page=${page}`);
 
@@ -474,6 +495,16 @@ ipcMain.handle('search-users-by-emails', async (_event, payload: { emails?: stri
     : Array.isArray(payload?.emails)
       ? payload.emails
       : [];
+
+  if (emails.length > EMAIL_BATCH_LIMIT) {
+    return { success: false, error: 'too-many-emails', message: `Maximum ${EMAIL_BATCH_LIMIT} email addresses per request.`, data: { users: [] } };
+  }
+
+  const invalidEmail = emails.find((e: unknown) => !isValidEmail(e));
+  if (invalidEmail !== undefined) {
+    return { success: false, error: 'invalid-email', message: 'One or more email addresses are not valid.', data: { users: [] } };
+  }
+
   elog.log(`Resolving users by emails — ${emails.length} address(es) provided.`);
   elog.addSummary(`Search users by emails: ${emails.length} address(es)`);
 
@@ -506,6 +537,11 @@ ipcMain.handle('search-groups', async (_event, payload: { searchText?: string; p
   const elog = createAppLogger();
   const searchText = typeof payload === 'string' ? payload : payload?.searchText || '';
   const page = typeof payload === 'string' ? 0 : payload?.page ?? 0;
+
+  if (!isValidSearchText(searchText)) {
+    return { success: false, error: 'invalid-search-text', message: 'Search text exceeds maximum allowed length.', data: { groups: [], total: 0 } };
+  }
+
   elog.log(`Searching groups — query: "${searchText}", page: ${page}`);
   elog.addSummary(`Search groups: query="${searchText}" page=${page}`);
 
