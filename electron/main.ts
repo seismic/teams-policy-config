@@ -6,6 +6,7 @@ import { grantAccessPolicy, runPreLoginPowerShellTasks, SetupResult } from './te
 import { createEnterpriseLogger } from './util/logger/enterprise-logger';
 import { installAzureCli, installHomebrew, installPowerShell } from './install-cli';
 import { searchGroups, searchUsers, searchUsersByEmails } from './commands';
+import { isValidGuid, isValidPolicyName } from './util/validate';
 import {
   isAzCliInstalled,
   isPowerShellInstalled,
@@ -117,7 +118,9 @@ ipcMain.handle('settings:get-policy-name', async () => {
   elog.log('Reading policy name setting...');
   elog.addSummary('Get policy name setting');
   const settings = readAppSettings();
-  const policyName = typeof settings.grantPolicyName === 'string' ? settings.grantPolicyName : '';
+  // Re-validate on read: never propagate a policy name from settings.json that
+  // would not pass input validation (defends the settings reload path, 1352156).
+  const policyName = isValidPolicyName(settings.grantPolicyName) ? settings.grantPolicyName!.trim() : '';
   elog.log(`Policy name retrieved: "${policyName}"`);
   elog.addSummary(`Policy name: "${policyName}"`);
   return {
@@ -132,13 +135,13 @@ ipcMain.handle('settings:set-policy-name', async (_event, payload: { policyName?
   elog.addSummary('Set policy name operation started');
 
   const value = typeof payload === 'string' ? payload : payload?.policyName;
-  if (typeof value !== 'string') {
-    elog.error('Invalid policy name provided — not a string.');
-    elog.addSummary('Failed: policyName must be a string.');
+  if (!isValidPolicyName(value)) {
+    elog.error('Invalid policy name provided.');
+    elog.addSummary('Failed: invalid policy name.');
     return {
       success: false,
       error: 'invalid-policy-name',
-      message: 'policyName must be a string'
+      message: 'Invalid policy name. Use only letters, numbers, space, dot, hyphen or underscore (max 64).'
     };
   }
 
@@ -279,7 +282,7 @@ ipcMain.handle('grant-policy', async (_event, data) => {
   try {
     const { policyName, type, users, groups } = data;
 
-    if (!policyName || typeof policyName !== 'string') {
+    if (!isValidPolicyName(policyName)) {
       log('Invalid policy name provided.');
       elog.error('Invalid policy name provided.');
       elog.addSummary('Invalid policy name provided.');
@@ -287,7 +290,7 @@ ipcMain.handle('grant-policy', async (_event, data) => {
       return {
         success: false,
         error: 'invalid-policy-name',
-        message: 'A valid policy name must be provided.'
+        message: 'Invalid policy name. Use only letters, numbers, space, dot, hyphen or underscore (max 64).'
       };
     }
 
@@ -312,6 +315,18 @@ ipcMain.handle('grant-policy', async (_event, data) => {
         success: false,
         error: 'no-groups-specified',
         message: 'At least one group must be specified for a group-type policy grant.'
+      };
+    }
+
+    if (type === 'group' && !groups.every((group: unknown) => isValidGuid(group))) {
+      log('One or more group ids are not valid GUIDs.');
+      elog.error('One or more group ids are not valid GUIDs.');
+      elog.addSummary('Invalid group id provided.');
+      elog.finish(false);
+      return {
+        success: false,
+        error: 'invalid-group-id',
+        message: 'Each selected group must be a valid Azure AD object id (GUID).'
       };
     }
 

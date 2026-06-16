@@ -1,6 +1,8 @@
 import { promisify } from 'node:util';
 import { execFile } from 'node:child_process';
+import fs from 'node:fs';
 import path from 'node:path';
+import { app } from 'electron';
 
 const execFileAsync = promisify(execFile);
 
@@ -46,6 +48,88 @@ export function withCommonCliPath(env: NodeJS.ProcessEnv = process.env): NodeJS.
         ...env,
         PATH: combinedPath
     };
+}
+
+/**
+ * Returns a controlled, non-attacker-writable working directory for child
+ * processes (the app directory) instead of process.cwd().
+ *
+ * For a packaged Electron app, process.cwd() can be an arbitrary directory the
+ * OS happened to launch the app from. On Windows, spawning through a shell with
+ * an unqualified command name resolves it from the cwd first, so a cwd an
+ * attacker can write to enables a binary hijack (scan finding 1352217). Pinning
+ * the cwd to the read-only app directory removes that vector.
+ */
+export function getSafeCwd(): string {
+    try {
+        return app.getAppPath();
+    } catch {
+        return process.cwd();
+    }
+}
+
+function azCandidatePaths(): string[] {
+    if (process.platform === 'win32') {
+        const programFiles = process.env['ProgramFiles'] || 'C:\\Program Files';
+        const programFilesX86 = process.env['ProgramFiles(x86)'] || 'C:\\Program Files (x86)';
+        return [
+            path.join(programFiles, 'Microsoft SDKs', 'Azure', 'CLI2', 'wbin', 'az.cmd'),
+            path.join(programFilesX86, 'Microsoft SDKs', 'Azure', 'CLI2', 'wbin', 'az.cmd'),
+        ];
+    }
+
+    return ['/opt/homebrew/bin/az', '/usr/local/bin/az', '/usr/bin/az'];
+}
+
+/**
+ * Resolves the Azure CLI to a verified, absolute path before it is ever spawned.
+ *
+ * This is the core mitigation for the untrusted-search-path finding (1352217):
+ * callers must invoke az by absolute path, never by a bare name, so that neither
+ * the shell nor cmd.exe performs a PATH/cwd search that could be hijacked.
+ *
+ * Resolution order: well-known install locations first, then a PATH lookup via
+ * an absolute `where.exe`/`which` (themselves invoked safely, no shell). Only a
+ * successful resolution is cached, so the in-app "Install Azure CLI" flow can
+ * still be picked up later in the same session.
+ */
+let cachedAzCliPath: string | null = null;
+
+async function resolveAzCliViaSystemLookup(): Promise<string | null> {
+    try {
+        if (process.platform === 'win32') {
+            const systemRoot = process.env['SystemRoot'] || 'C:\\Windows';
+            const whereExe = path.join(systemRoot, 'System32', 'where.exe');
+            const { stdout } = await execFileAsync(whereExe, ['az'], { env: withCommonCliPath() });
+            const first = stdout.split(/\r?\n/).map((line) => line.trim()).find(Boolean);
+            return first && path.isAbsolute(first) && fs.existsSync(first) ? first : null;
+        }
+
+        const { stdout } = await execFileAsync('/usr/bin/which', ['az'], { env: withCommonCliPath() });
+        const first = stdout.split(/\r?\n/).map((line) => line.trim()).find(Boolean);
+        return first && path.isAbsolute(first) && fs.existsSync(first) ? first : null;
+    } catch {
+        return null;
+    }
+}
+
+export async function resolveAzCliPath(): Promise<string | null> {
+    if (cachedAzCliPath && fs.existsSync(cachedAzCliPath)) {
+        return cachedAzCliPath;
+    }
+
+    for (const candidate of azCandidatePaths()) {
+        if (path.isAbsolute(candidate) && fs.existsSync(candidate)) {
+            cachedAzCliPath = candidate;
+            return candidate;
+        }
+    }
+
+    const resolved = await resolveAzCliViaSystemLookup();
+    if (resolved) {
+        cachedAzCliPath = resolved;
+    }
+    return resolved;
 }
 
 /**
@@ -168,29 +252,15 @@ export async function isPowerShellInstalled(log?: ProgressLogger): Promise<boole
  * Checks whether Azure CLI is reachable from this process.
  */
 export async function isAzCliInstalled(log?: ProgressLogger): Promise<boolean> {
-    const executables = getAzCliExecutables();
-
-    for (const executable of executables) {
-        try {
-            await execFileAsync(executable, ['version'], {
-                cwd: process.cwd(),
-                env: withCommonCliPath(),
-                shell: process.platform === 'win32'
-            });
-            log?.(`Detected Azure CLI executable: ${executable}`);
-
-            return true;
-        } catch (error: any) {
-            const errorObject = error as NodeJS.ErrnoException;
-            if (errorObject.code === 'ENOENT' || errorObject.code === 'EINVAL') {
-                continue;
-            }
-
-            // The executable exists but returned a non-zero status for version.
-            log?.(`Azure CLI probe failed for ${executable}: ${errorObject.message}`);
-            continue;
-        }
+    // Resolve to a verified absolute path (well-known locations + safe PATH lookup)
+    // rather than probing bare executable names through a shell, which would be
+    // vulnerable to a working-directory binary hijack (scan finding 1352217).
+    const azPath = await resolveAzCliPath();
+    if (azPath) {
+        log?.(`Detected Azure CLI executable: ${azPath}`);
+        return true;
     }
 
+    log?.('Azure CLI was not found in the expected locations or on PATH.');
     return false;
 }

@@ -25,11 +25,19 @@ export async function runCommandWithLiveLogs(
   const { cwd, env, log, timeoutMs = 0 } = options;
 
   return new Promise((resolve, reject) => {
-    const child = spawn(executable, args, {
+    // Windows needs a shell to run the Azure CLI's `.cmd` wrapper, but shell:true does
+    // not quote the command — so quote the (absolute) path ourselves to handle spaces
+    // such as "C:\Program Files\...". Callers MUST pass an absolute executable path
+    // (see resolveAzCliPath): with an absolute path cmd.exe performs no PATH or
+    // working-directory search, which closes the binary-hijack vector (finding 1352217).
+    const useWindowsShell = process.platform === 'win32';
+    const spawnExecutable = useWindowsShell && /\s/.test(executable) ? `"${executable}"` : executable;
+
+    const child = spawn(spawnExecutable, args, {
       cwd,
       env,
       stdio: ['ignore', 'pipe', 'pipe'],
-      shell: process.platform === 'win32'
+      shell: useWindowsShell
     });
 
     let stdout = '';
