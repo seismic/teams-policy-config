@@ -149,6 +149,21 @@ Assigns the policy tenant-wide to every user in the organization.
 - **Finish** becomes available immediately after entering a policy name.
 - Use with caution — this affects all users in the tenant.
 
+> **Least-privilege guidance:** Don't start with Global. Grant to a small **pilot group** first (User or Group level), validate, then **expand deliberately**. See [Least-privilege rollout](#least-privilege-rollout) below.
+
+---
+
+### Least-privilege rollout
+
+The Global option applies the policy — and therefore the configured app's access — to **every user in the tenant** in a single action. As a security best practice, follow least privilege rather than granting tenant-wide up front:
+
+1. **Start with a pilot group.** Choose **User level** or **Group level** and grant the policy to a small set of test users or a single pilot group.
+2. **Validate.** Confirm the Teams integration behaves as expected for the pilot and review the results in Step 4 before going wider.
+3. **Expand deliberately.** Add more groups in controlled waves, re-checking after each — instead of switching straight to Global.
+4. **Use Global only when required.** Reserve tenant-wide grants for when the policy is fully validated and every user genuinely needs coverage.
+
+> Use the smallest scope that meets your need. A scoped (user/group) grant limits the blast radius and is far easier to walk back than a tenant-wide one.
+
 ---
 
 ### User selection (User level only)

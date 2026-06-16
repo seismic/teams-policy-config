@@ -1,13 +1,17 @@
 # Teams Policy Config
 
-Simple desktop app with two fields:
-- Folder name
-- File name
+A desktop setup wizard (Electron) that creates a **Microsoft Teams Application Access Policy** in your Azure AD tenant and grants it to the users, groups, or the whole tenant you choose. It drives the Microsoft Teams and Azure CLI tooling for you via **PowerShell**, so admins don't have to run the cmdlets by hand.
 
-When you click **Create**, the app calls Electron IPC and executes a **PowerShell** command to:
-- create the folder
-- create the text file
-- write `Hello Electron`
+The wizard walks through four steps:
+
+1. **Setup Environment** — checks that PowerShell and Azure CLI are installed.
+2. **Azure Login** — signs in to Azure AD via device-code authentication.
+3. **Grant Policy** — creates the policy and grants it at User, Group, or Global (tenant-wide) level.
+4. **Complete** — shows a summary of what was applied.
+
+See the [User Guide](docs/usage-doc.md) for a full walkthrough and the [architecture overview](docs/architecture.md) for how it works under the hood.
+
+> **Least-privilege guidance:** Start with a small **pilot group** (User or Group level), validate, then **expand deliberately**. Avoid granting at Global (tenant-wide) level until the policy is validated and every user genuinely needs it. See [Least-privilege rollout](docs/usage-doc.md#least-privilege-rollout).
 
 ## Run
 
