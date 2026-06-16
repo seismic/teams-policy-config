@@ -2,7 +2,8 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { app, BrowserWindow, nativeImage, session, shell } from 'electron';
 import { isLocalUrl } from './util/url';
-import { DEV_CSP, SECURE_WEB_PREFERENCES } from './util/security-constants';
+import { DEV_CSP } from './util/security-constants';
+import { buildSecureWebPreferences, resolveNewWindowAction } from './util/window-security';
 
 const APP_DISPLAY_NAME = 'Teams Policy Config';
 
@@ -82,13 +83,17 @@ function resolveAppIconPath(): string | undefined {
  *                             context; window object cannot reach ipcRenderer directly.
  *  3. nodeIntegration: false — Belt-and-suspenders: Node built-ins are not injected
  *                             into the renderer even without contextIsolation.
+ *                             (1–3 are applied via buildSecureWebPreferences() from
+ *                             ./util/window-security — unit-tested in the suite below.)
  *  4. will-navigate handler  — any renderer-initiated navigation to a non-local URL
  *                             is cancelled before the request leaves the process.
  *                             Uses isLocalUrl() from ./util/url — the same function
  *                             that is covered by the security-controls test suite.
  *  5. setWindowOpenHandler   — window.open() and target="_blank" links are denied
  *                             in-process; https:// links are forwarded to the system
- *                             browser via shell.openExternal instead.
+ *                             browser via shell.openExternal instead. Decision logic
+ *                             is resolveNewWindowAction() from ./util/window-security,
+ *                             unit-tested in the security-controls suite.
  *  6. Content-Security-Policy — dev server responses get CSP via onHeadersReceived;
  *                             production file:// loads get CSP from the meta tag in
  *                             index.html. Both prohibit object-src and restrict
@@ -118,10 +123,7 @@ export function createWindow(): void {
 		width: 900,
 		height: 700,
 		...(iconPath ? { icon: iconPath } : {}),
-		webPreferences: {
-			preload: path.join(__dirname, 'preload.js'),
-			...SECURE_WEB_PREFERENCES,
-		},
+		webPreferences: buildSecureWebPreferences(path.join(__dirname, 'preload.js')),
 	});
 	win.maximize();
 	win.setTitle(APP_DISPLAY_NAME);
@@ -133,17 +135,14 @@ export function createWindow(): void {
 		}
 	});
 
-	// Deny all new-window creation; open https:// links in the system browser instead
+	// Deny all new-window creation; open https:// links in the system browser instead.
+	// Decision logic lives in resolveNewWindowAction() (unit-tested in security-controls.test.ts).
 	win.webContents.setWindowOpenHandler(({ url }) => {
-		try {
-			const { protocol } = new URL(url);
-			if (protocol === 'https:') {
-				shell.openExternal(url).catch((err) => console.error('Failed to open external URL:', err));
-			}
-		} catch {
-			// Ignore invalid URLs
+		const decision = resolveNewWindowAction(url);
+		if (decision.openExternal) {
+			shell.openExternal(decision.openExternal).catch((err) => console.error('Failed to open external URL:', err));
 		}
-		return { action: 'deny' };
+		return { action: decision.action };
 	});
 
 	const devServerUrl = process.env.VITE_DEV_SERVER_URL;

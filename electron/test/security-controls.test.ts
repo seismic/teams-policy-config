@@ -3,11 +3,12 @@
  *
  * Control numbers match the list in the createWindow() JSDoc in window.ts:
  *
- *   Controls 1–3. SECURE_WEB_PREFERENCES
- *                  sandbox:true, contextIsolation:true, nodeIntegration:false
+ *   Controls 1–3. SECURE_WEB_PREFERENCES + buildSecureWebPreferences() — the
+ *                  hardened sandbox flags (sandbox/contextIsolation/nodeIntegration)
+ *                  and the webPreferences object actually wired into the BrowserWindow.
  *   Control  4.   isLocalUrl() — logic behind the will-navigate guard
- *   Control  5.   setWindowOpenHandler — denies new windows; no direct unit test
- *                  possible without a live BrowserWindow; covered by code review.
+ *   Control  5.   resolveNewWindowAction() — the setWindowOpenHandler decision:
+ *                  deny every new window; forward only https:// to the system browser.
  *   Control  6.   DEV_CSP / PROD_CSP — CSP directive completeness;
  *                  PROD_CSP parity with index.html meta tag verified here.
  *   (Additional)  IPC validators — payload allowlisting on every inbound channel
@@ -19,6 +20,7 @@ import path from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { DEV_CSP, PROD_CSP, SECURE_WEB_PREFERENCES } from '../util/security-constants';
 import { isLocalUrl } from '../util/url';
+import { buildSecureWebPreferences, resolveNewWindowAction } from '../util/window-security';
 import {
   EMAIL_BATCH_LIMIT,
   isValidEmail,
@@ -41,6 +43,35 @@ describe('SECURE_WEB_PREFERENCES — BrowserWindow sandbox flags', () => {
 
   it('enables sandbox', () => {
     expect(SECURE_WEB_PREFERENCES.sandbox).toBe(true);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Controls 1–3 (wiring) — buildSecureWebPreferences(): the webPreferences object
+// actually passed to new BrowserWindow(). Proves the hardened flags are applied,
+// not merely defined in isolation.
+// ---------------------------------------------------------------------------
+describe('buildSecureWebPreferences — webPreferences wired into BrowserWindow', () => {
+  const prefs = buildSecureWebPreferences('/path/to/preload.js');
+
+  it('applies the hardened sandbox flags', () => {
+    expect(prefs.nodeIntegration).toBe(false);
+    expect(prefs.contextIsolation).toBe(true);
+    expect(prefs.sandbox).toBe(true);
+  });
+
+  it('sets the preload bridge path', () => {
+    expect(prefs.preload).toBe('/path/to/preload.js');
+  });
+
+  it('includes every SECURE_WEB_PREFERENCES flag (no hardening silently dropped)', () => {
+    for (const key of Object.keys(SECURE_WEB_PREFERENCES) as Array<keyof typeof SECURE_WEB_PREFERENCES>) {
+      expect(prefs[key]).toBe(SECURE_WEB_PREFERENCES[key]);
+    }
+  });
+
+  it('returns a fresh object so the shared constant cannot be mutated', () => {
+    expect(buildSecureWebPreferences('/p/preload.js')).not.toBe(SECURE_WEB_PREFERENCES);
   });
 });
 
@@ -106,8 +137,8 @@ describe('PROD_CSP — Content-Security-Policy for production file:// loads', ()
 
 // ---------------------------------------------------------------------------
 // Control 4 — will-navigate guard: isLocalUrl()
-// (Control 5 — setWindowOpenHandler — has no unit test: it requires a live
-//  BrowserWindow and is enforced by code review + the window.ts contract comment.)
+// (Control 5 — setWindowOpenHandler — is tested separately via
+//  resolveNewWindowAction() further below.)
 // ---------------------------------------------------------------------------
 describe('isLocalUrl — navigation guard (will-navigate + setWindowOpenHandler)', () => {
   describe('allowed: local origins only', () => {
@@ -163,6 +194,38 @@ describe('isLocalUrl — navigation guard (will-navigate + setWindowOpenHandler)
     it('blocks a URL with only whitespace', () => {
       expect(isLocalUrl('   ')).toBe(false);
     });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Control 5 — resolveNewWindowAction(): the setWindowOpenHandler decision.
+// Deny every new window; forward only https:// links to the system browser.
+// ---------------------------------------------------------------------------
+describe('resolveNewWindowAction — setWindowOpenHandler decision', () => {
+  it('denies every new window regardless of scheme', () => {
+    expect(resolveNewWindowAction('https://learn.microsoft.com').action).toBe('deny');
+    expect(resolveNewWindowAction('http://example.com').action).toBe('deny');
+    expect(resolveNewWindowAction('file:///etc/passwd').action).toBe('deny');
+    expect(resolveNewWindowAction('not a url').action).toBe('deny');
+  });
+
+  it('forwards https:// links to the system browser', () => {
+    expect(resolveNewWindowAction('https://learn.microsoft.com/teams')).toEqual({
+      action: 'deny',
+      openExternal: 'https://learn.microsoft.com/teams',
+    });
+  });
+
+  it('does not open non-https schemes externally', () => {
+    expect(resolveNewWindowAction('http://example.com').openExternal).toBeNull();
+    expect(resolveNewWindowAction('file:///etc/passwd').openExternal).toBeNull();
+    expect(resolveNewWindowAction('data:text/html,<script>alert(1)</script>').openExternal).toBeNull();
+    expect(resolveNewWindowAction('javascript:alert(1)').openExternal).toBeNull();
+  });
+
+  it('denies and opens nothing for malformed URLs', () => {
+    expect(resolveNewWindowAction('')).toEqual({ action: 'deny', openExternal: null });
+    expect(resolveNewWindowAction('   ')).toEqual({ action: 'deny', openExternal: null });
   });
 });
 
