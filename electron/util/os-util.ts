@@ -59,10 +59,16 @@ export function withCommonCliPath(env: NodeJS.ProcessEnv = process.env): NodeJS.
  * an unqualified command name resolves it from the cwd first, so a cwd an
  * attacker can write to enables a binary hijack (scan finding 1352217). Pinning
  * the cwd to the read-only app directory removes that vector.
+ *
+ * In packaged builds, app.getAppPath() returns a path ending in `.asar`
+ * (e.g. /Applications/MyApp.app/Contents/Resources/app.asar). Electron's
+ * virtual FS treats it as a directory, but Node's spawn hits the real OS
+ * filesystem and gets ENOTDIR. Use the parent (Resources/) directory instead.
  */
 export function getSafeCwd(): string {
     try {
-        return app.getAppPath();
+        const appPath = app.getAppPath();
+        return appPath.endsWith('.asar') ? path.dirname(appPath) : appPath;
     } catch {
         return process.cwd();
     }
