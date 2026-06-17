@@ -180,21 +180,34 @@ async function isPolicyExist(policyName: string, log: ProgressLogger): Promise<b
 export async function setupPolicy(log: ProgressLogger, policyName: string): Promise<any> {
     const safePolicyName = assertPolicyName(policyName);
     // Check if the policy already exists to avoid redundant setup attempts.
+    const teamsAppId = getTeamsAppId(log);
     const alreadyExists = await isPolicyExist(safePolicyName, log);
     if (alreadyExists) {
-        log(`CS Application Access Policy "${policyName}" already exists. Skipping setup.`);
+        log(`CS Application Access Policy "${safePolicyName}" already exists. Skipping setup.`);
+
+        // Here even if policy exists, we want to add AppId to the policy to make sure the policy is correctly configured, so we won't return here and will proceed to add AppId to the policy if it's not already there.
+        const script = withTeamsLoginCheck([
+            `$existingPolicy = Get-CsApplicationAccessPolicy -Identity "${safePolicyName}" -ErrorAction Stop`,
+            `if ($existingPolicy.AppIds -notcontains "${teamsAppId}") {`,
+            `  Set-CsApplicationAccessPolicy -Identity "${safePolicyName}" -AppIds @{ Add = "${teamsAppId}" } -ErrorAction Stop`,
+            `  Write-Host "Updated existing policy '${safePolicyName}' with app ID." -ForegroundColor Green`,
+            `} else {`,
+            `  Write-Host "Existing policy '${safePolicyName}' already includes app ID. No update needed." -ForegroundColor DarkGray`,
+            `}`
+        ]);
+        const result = await runPowerShell(script, log, `Ensured existing CS Application Access Policy "${safePolicyName}" is configured with the correct app ID.`);
+        log(`Set-CsApplicationAccessPolicy output: ${result.stdout.trim()}`);
+
         return;
     }
 
-    const teamsAppId = getTeamsAppId(log);
-
     // New-CsApplicationAccessPolicy -Identity "Teams-Meeting-Policy" -AppIds "TEAMS_APP_ID"  -Description "MS teams access policy for Teams Meeting Ingest"
-    log(`Setting up CS Application Access Policy for ${policyName}...`);
+    log(`Setting up CS Application Access Policy for ${safePolicyName}...`);
     const script = withTeamsLoginCheck([
         `$policy = New-CsApplicationAccessPolicy -Identity ${psSingleQuote(safePolicyName)} -AppIds ${psSingleQuote(teamsAppId)} -Description "MS teams access policy for Teams Meeting Ingest"`,
         '$policy | Select-Object Identity, Description, AppIds | ConvertTo-Json -Depth 5 -Compress',
     ]);
-    log(`Executing PowerShell script to set up CS Application Access Policy "${policyName}"...`);
+    log(`Executing PowerShell script to set up CS Application Access Policy "${safePolicyName}"...`);
     log(`PowerShell script: ${script}`);
 
     const result = await runPowerShell(script, log, 'CS Application Access Policy setup is complete.');
