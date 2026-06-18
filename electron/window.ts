@@ -108,16 +108,23 @@ export function createWindow(): void {
 		applyMacDockIconSafely();
 	}
 
-	// Apply CSP headers for dev server (HTTP) requests.
-	// Production file:// loads get CSP from the meta tag in index.html.
-	session.defaultSession.webRequest.onHeadersReceived((details, callback) => {
-		callback({
-			responseHeaders: {
-				...details.responseHeaders,
-				'Content-Security-Policy': [DEV_CSP],
-			},
-		});
-	});
+	const devServerUrl = process.env.VITE_DEV_SERVER_URL;
+
+	// Inject CSP for dev-server (localhost) requests only.
+	// Production CSP comes from the <meta> tag in index.html.
+	if (devServerUrl) {
+		session.defaultSession.webRequest.onHeadersReceived(
+			{ urls: ['http://localhost:*/*', 'https://localhost:*/*'] },
+			(details, callback) => {
+				callback({
+					responseHeaders: {
+						...details.responseHeaders,
+						'Content-Security-Policy': [DEV_CSP],
+					},
+				});
+			}
+		);
+	}
 
 	const win = new BrowserWindow({
 		width: 900,
@@ -145,7 +152,6 @@ export function createWindow(): void {
 		return { action: decision.action };
 	});
 
-	const devServerUrl = process.env.VITE_DEV_SERVER_URL;
 	if (devServerUrl) {
 		win.loadURL(devServerUrl).catch((err) => {
 			console.error('Failed to load Vite dev server URL:', devServerUrl, err);
