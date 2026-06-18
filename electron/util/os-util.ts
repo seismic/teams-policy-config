@@ -262,11 +262,24 @@ export async function isAzCliInstalled(log?: ProgressLogger): Promise<boolean> {
     // rather than probing bare executable names through a shell, which would be
     // vulnerable to a working-directory binary hijack (scan finding 1352217).
     const azPath = await resolveAzCliPath();
-    if (azPath) {
-        log?.(`Detected Azure CLI executable: ${azPath}`);
-        return true;
+    if (!azPath) {
+        log?.('Azure CLI was not found in the expected locations or on PATH.');
+        return false;
     }
 
-    log?.('Azure CLI was not found in the expected locations or on PATH.');
-    return false;
+    try {
+        await execFileAsync(azPath, ['--version'], {
+            cwd: getSafeCwd(),
+            env: withCommonCliPath()
+        });
+        log?.(`Detected Azure CLI executable: ${azPath}`);
+        return true;
+    } catch (error: any) {
+        // The path resolved but the binary is not runnable (broken install, missing
+        // shared libraries, lost execute permission, etc.).  Do not cache this
+        // outcome so a subsequent install in the same session can be picked up.
+        cachedAzCliPath = null;
+        log?.(`Azure CLI probe failed for ${azPath}: ${(error as NodeJS.ErrnoException).message}`);
+        return false;
+    }
 }
