@@ -17,6 +17,8 @@ The build is produced by [`electron-builder`](https://www.electron.build/) and i
 ### 1.2 Terminal Permissions
 
 > **Important:** Open **Terminal** (or your preferred terminal emulator such as iTerm2) before running build commands. For operations involving Xcode Command Line Tools installation, Homebrew package installs, or keychain access during code signing, your user account must have **administrator privileges**. If prompted, enter your macOS login password. You do not need to prefix every command with `sudo` — `electron-builder` itself should run as a normal user.
+>
+> If you are using the integrated terminal inside a code editor (such as **VS Code** or **Cursor**), make sure to open the editor itself with administrator privileges: right-click the editor icon in the Dock or Finder and choose **"Open as Administrator"** (or launch it from an already-elevated terminal with `sudo code .`). Commands run inside an editor's integrated terminal inherit the editor's permissions, so the editor must be elevated for those operations to succeed.
 
 ### 1.3 Tooling
 

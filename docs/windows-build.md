@@ -17,6 +17,8 @@ The build is produced by [`electron-builder`](https://www.electron.build/) and i
 ### 1.2 Elevated Permissions
 
 > **Important:** Open your terminal (**PowerShell**, **Command Prompt**, or **Windows Terminal**) **as Administrator** before running any build commands. Right-click the terminal icon and select **"Run as administrator"**. This is required for native module compilation (node-gyp), NSIS installer generation, and code signing operations.
+>
+> If you are using the integrated terminal inside a code editor (such as **VS Code** or **Cursor**), make sure to open the editor itself as Administrator: right-click the editor icon and select **"Run as administrator"**. Commands run inside an editor's integrated terminal inherit the editor's permissions, so the editor must be elevated for those operations to succeed.
 
 ### 1.3 Tooling
 
