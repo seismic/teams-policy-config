@@ -14,7 +14,11 @@ The build is produced by [`electron-builder`](https://www.electron.build/) and i
 - It is **strongly recommended** to build the Windows artifact **on Windows**. While `electron-builder` can cross-compile a Windows `.exe` from macOS/Linux (via Wine + Mono), the experience is fragile — native modules, code signing, and NSIS plugins all behave best on the native OS.
 - Both **x64** and **arm64** targets are supported; default is `x64`.
 
-### 1.2 Tooling
+### 1.2 Elevated Permissions
+
+> **Important:** Open your terminal (**PowerShell**, **Command Prompt**, or **Windows Terminal**) **as Administrator** before running any build commands. Right-click the terminal icon and select **"Run as administrator"**. This is required for native module compilation (node-gyp), NSIS installer generation, and code signing operations.
+
+### 1.3 Tooling
 
 | Tool                            | Required Version           | Notes                                                                          |
 |---------------------------------|----------------------------|--------------------------------------------------------------------------------|
@@ -45,7 +49,7 @@ Install Visual Studio Build Tools 2022 with the **C++ build tools** workload:
 winget install Microsoft.VisualStudio.2022.BuildTools --override "--wait --add Microsoft.VisualStudio.Workload.VCTools --includeRecommended"
 ```
 
-### 1.3 Repository Checkout
+### 1.4 Repository Checkout
 
 Open **PowerShell** (preferred) or **Git Bash** and run:
 
