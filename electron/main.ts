@@ -7,6 +7,7 @@ import { createEnterpriseLogger } from './util/logger/enterprise-logger';
 import { installAzureCli, installHomebrew, installPowerShell } from './install-cli';
 import { searchGroups, searchUsers, searchUsersByEmails } from './commands';
 import { EMAIL_BATCH_LIMIT, isValidEmail, isValidGuid, isValidPolicyName, isValidSearchText } from './util/validate';
+import { GrantType, GRANT_TYPE_VALUES } from './util/grant-types';
 import {
   isAzCliInstalled,
   isPowerShellInstalled,
@@ -291,11 +292,11 @@ ipcMain.handle('grant-policy', async (_event, data) => {
     const { policyName, type, users, groups } = data;
 
     // Allowlist the type field — never allow arbitrary strings to reach the grant logic
-    if (type !== 'user' && type !== 'group') {
+    if (!GRANT_TYPE_VALUES.includes(type as GrantType)) {
       elog.error('Invalid type field in payload.');
       elog.addSummary('Failed: invalid type field.');
       elog.finish(false);
-      return { success: false, error: 'invalid-type', message: 'type must be "user" or "group".' };
+      return { success: false, error: 'invalid-type', message: `type must be one of: ${GRANT_TYPE_VALUES.join(', ')}.` };
     }
 
     if (!isValidPolicyName(policyName)) {
@@ -310,7 +311,7 @@ ipcMain.handle('grant-policy', async (_event, data) => {
       };
     }
 
-    if (type === 'user' && (!users || !Array.isArray(users) || users.length === 0)) {
+    if (type === GrantType.User && (!users || !Array.isArray(users) || users.length === 0)) {
       log('No users specified for user-type policy grant.');
       elog.error('No users specified for user-type policy grant.');
       elog.addSummary('No users specified for user-type policy grant.');
@@ -322,7 +323,7 @@ ipcMain.handle('grant-policy', async (_event, data) => {
       };
     }
 
-    if (type === 'group' && (!groups || !Array.isArray(groups) || groups.length === 0)) {
+    if (type === GrantType.Group && (!groups || !Array.isArray(groups) || groups.length === 0)) {
       log('No groups specified for group-type policy grant.');
       elog.error('No groups specified for group-type policy grant.');
       elog.addSummary('No groups specified for group-type policy grant.');
@@ -334,7 +335,7 @@ ipcMain.handle('grant-policy', async (_event, data) => {
       };
     }
 
-    if (type === 'group' && !groups.every((group: unknown) => isValidGuid(group))) {
+    if (type === GrantType.Group && !groups.every((group: unknown) => isValidGuid(group))) {
       log('One or more group ids are not valid GUIDs.');
       elog.error('One or more group ids are not valid GUIDs.');
       elog.addSummary('Invalid group id provided.');
@@ -356,7 +357,7 @@ ipcMain.handle('grant-policy', async (_event, data) => {
       policyName,
       users,
       groups,
-      message: `Policy "${policyName}" granted to ${type === 'user' ? `users ${users.join(', ')}` : `groups ${groups.join(', ')}`} successfully.`,
+      message: `Policy "${policyName}" granted to ${type === GrantType.User ? `users ${users.join(', ')}` : `groups ${groups.join(', ')}`} successfully.`,
       data: grantOperationResult || null
     };
   } catch (err: any) {

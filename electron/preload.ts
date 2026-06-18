@@ -2,7 +2,7 @@ import { contextBridge, ipcRenderer } from 'electron';
 
 interface GrantPolicyPayload {
   policyName: string;
-  type: 'user' | 'group';
+  type: 'user' | 'group' | 'global';
   users?: string[];
   groups?: string[];
 }

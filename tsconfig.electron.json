@@ -16,7 +16,6 @@
     ]
   },
   "include": [
-    "electron/**/*.ts",
-    "src/vite-env.d.ts"
+    "electron/**/*.ts"
   ]
 }

@@ -1,5 +1,6 @@
 import { installRequiredPowerShellModules, ProgressLogger } from './util/os-util';
 import { getPolicyByName, getUserList, grantPolicyToGlobal, grantPolicyToGroup, grantPolicyToUser, setupPolicy, User } from './commands';
+import { GrantType } from './util/grant-types';
 
 export type SetupResult = {
 	success: boolean;
@@ -13,7 +14,7 @@ export type SetupResult = {
 /**
  * Retrieves all CS Application Access Policies.
  */
-export async function grantAccessPolicy(log: ProgressLogger, policyName: string, type: string, users: any[], groups: any[]): Promise<any> {
+export async function grantAccessPolicy(log: ProgressLogger, policyName: string, type: GrantType, users: any[], groups: any[]): Promise<any> {
 	log('Granting policy started...');
 
 	// Setup the policy first to ensure it exists before attempting to grant it, and to avoid potential issues with granting a non-existent policy.
@@ -22,13 +23,13 @@ export async function grantAccessPolicy(log: ProgressLogger, policyName: string,
 	// For user policy, grant to first user in the list (for testing/demo purposes)
 	let result;
 	switch (type) {
-		case 'user':
+		case GrantType.User:
 			result = await grantPolicyToUser(log, policyName, users);
 			break;
-		case 'group':
+		case GrantType.Group:
 			result = await grantPolicyToGroup(log, policyName, groups);
 			break;
-		case 'global':
+		case GrantType.Global:
 			log('Granting global policy');
 			// Grant global policy logic here
 			result = await grantPolicyToGlobal(log, policyName);
