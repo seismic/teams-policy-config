@@ -6,6 +6,8 @@ import { app } from 'electron';
 
 const execFileAsync = promisify(execFile);
 
+const isWindows = process.platform === 'win32';
+
 export type ProgressLogger = (message: string) => void;
 
 export type PowerShellCommandResult = {
@@ -15,13 +17,13 @@ export type PowerShellCommandResult = {
 };
 
 export function getPowerShellExecutables(): string[] {
-    return process.platform === 'win32'
+    return isWindows
         ? ['powershell.exe', 'pwsh.exe', 'pwsh']
         : ['pwsh', 'powershell'];
 }
 
 export function getAzCliExecutables(): string[] {
-    return process.platform === 'win32'
+    return isWindows
         ? ['az.cmd', 'az.exe', 'az']
         : ['az', '/opt/homebrew/bin/az', '/usr/local/bin/az'];
 }
@@ -37,7 +39,7 @@ export function getAzCliExecutables(): string[] {
  */
 export function withCommonCliPath(env: NodeJS.ProcessEnv = process.env): NodeJS.ProcessEnv {
     const existingPath = env.PATH ?? '';
-    const extraPaths = process.platform === 'win32'
+    const extraPaths = isWindows
         ? ['C:\\Windows\\System32', 'C:\\Program Files\\PowerShell\\7', 'C:\\Program Files\\Microsoft SDKs\\Azure\\CLI2\\wbin', 'C:\\Program Files (x86)\\Microsoft SDKs\\Azure\\CLI2\\wbin']
         : ['/opt/homebrew/bin', '/usr/local/bin', '/usr/bin', '/bin'];
     const combinedPath = [existingPath, ...extraPaths.filter((p) => !existingPath.includes(p))]
@@ -75,7 +77,7 @@ export function getSafeCwd(): string {
 }
 
 function azCandidatePaths(): string[] {
-    if (process.platform === 'win32') {
+    if (isWindows) {
         const programFiles = process.env['ProgramFiles'] || 'C:\\Program Files';
         const programFilesX86 = process.env['ProgramFiles(x86)'] || 'C:\\Program Files (x86)';
         return [
@@ -103,7 +105,7 @@ let cachedAzCliPath: string | null = null;
 
 async function resolveAzCliViaSystemLookup(): Promise<string | null> {
     try {
-        if (process.platform === 'win32') {
+        if (isWindows) {
             const systemRoot = process.env['SystemRoot'] || 'C:\\Windows';
             const whereExe = path.join(systemRoot, 'System32', 'where.exe');
             const { stdout } = await execFileAsync(whereExe, ['az'], { env: withCommonCliPath() });
