@@ -1,6 +1,7 @@
 /// <reference types="node" />
 import './env';
 import { PowerShellCommandResult, ProgressLogger, runPowerShell } from './util/os-util';
+import { assertGroupId, assertPolicyName, psSingleQuote } from './util/validate';
 
 type AccessPolicy = {
     Identity?: string;
@@ -143,8 +144,9 @@ export async function getAllAccessPolicies(log: ProgressLogger, successMessage?:
 }
 
 export async function getPolicyByName(log: ProgressLogger, policyName: string): Promise<AccessPolicy | null> {
+    const safePolicyName = assertPolicyName(policyName);
     const script = withTeamsLoginCheck([
-        `Get-CsApplicationAccessPolicy -Identity "${policyName}" -ErrorAction Stop | Select-Object Identity, Description, AppIds | ConvertTo-Json -Depth 5 -Compress`
+        `Get-CsApplicationAccessPolicy -Identity ${psSingleQuote(safePolicyName)} -ErrorAction Stop | Select-Object Identity, Description, AppIds | ConvertTo-Json -Depth 5 -Compress`
     ]);
     log(`Executing PowerShell script to retrieve CS Application Access Policy "${policyName}"...`);
     log(`PowerShell script: ${script}`);
@@ -176,22 +178,38 @@ async function isPolicyExist(policyName: string, log: ProgressLogger): Promise<b
 }
 
 export async function setupPolicy(log: ProgressLogger, policyName: string): Promise<any> {
+    const safePolicyName = assertPolicyName(policyName);
     // Check if the policy already exists to avoid redundant setup attempts.
-    const alreadyExists = await isPolicyExist(policyName, log);
+    const teamsAppId = getTeamsAppId(log);
+    const quotedPolicyName = psSingleQuote(safePolicyName);
+    const quotedAppId = psSingleQuote(teamsAppId);
+    const alreadyExists = await isPolicyExist(safePolicyName, log);
     if (alreadyExists) {
-        log(`CS Application Access Policy "${policyName}" already exists. Skipping setup.`);
+        log(`CS Application Access Policy "${safePolicyName}" already exists. Skipping setup.`);
+
+        // Here even if policy exists, we want to add AppId to the policy to make sure the policy is correctly configured, so we won't return here and will proceed to add AppId to the policy if it's not already there.
+        const script = withTeamsLoginCheck([
+            `$existingPolicy = Get-CsApplicationAccessPolicy -Identity ${quotedPolicyName} -ErrorAction Stop`,
+            `if ($existingPolicy.AppIds -notcontains ${quotedAppId}) {`,
+            `  Set-CsApplicationAccessPolicy -Identity ${quotedPolicyName} -AppIds @{ Add = ${quotedAppId} } -ErrorAction Stop`,
+            `  Write-Host "Updated existing policy '${safePolicyName}' with app ID." -ForegroundColor Green`,
+            `} else {`,
+            `  Write-Host "Existing policy '${safePolicyName}' already includes app ID. No update needed." -ForegroundColor DarkGray`,
+            `}`
+        ]);
+        const result = await runPowerShell(script, log, `Ensured existing CS Application Access Policy "${safePolicyName}" is configured with the correct app ID.`);
+        log(`Set-CsApplicationAccessPolicy output: ${result.stdout.trim()}`);
+
         return;
     }
 
-    const teamsAppId = getTeamsAppId(log);
-
     // New-CsApplicationAccessPolicy -Identity "Teams-Meeting-Policy" -AppIds "TEAMS_APP_ID"  -Description "MS teams access policy for Teams Meeting Ingest"
-    log(`Setting up CS Application Access Policy for ${policyName}...`);
+    log(`Setting up CS Application Access Policy for ${safePolicyName}...`);
     const script = withTeamsLoginCheck([
-        `$policy = New-CsApplicationAccessPolicy -Identity "${policyName}" -AppIds "${teamsAppId}" -Description "MS teams access policy for Teams Meeting Ingest"`,
+        `$policy = New-CsApplicationAccessPolicy -Identity ${quotedPolicyName} -AppIds ${quotedAppId} -Description "MS teams access policy for Teams Meeting Ingest"`,
         '$policy | Select-Object Identity, Description, AppIds | ConvertTo-Json -Depth 5 -Compress',
     ]);
-    log(`Executing PowerShell script to set up CS Application Access Policy "${policyName}"...`);
+    log(`Executing PowerShell script to set up CS Application Access Policy "${safePolicyName}"...`);
     log(`PowerShell script: ${script}`);
 
     const result = await runPowerShell(script, log, 'CS Application Access Policy setup is complete.');
@@ -202,16 +220,18 @@ export async function setupPolicy(log: ProgressLogger, policyName: string): Prom
 }
 
 export async function grantPolicy(log: ProgressLogger, policyName: string, groupId: string): Promise<void> {
+    const safePolicyName = assertPolicyName(policyName);
+    const safeGroupId = assertGroupId(groupId);
     const teamsAppId = getTeamsAppId(log);
 
     // Check if the policy already exists to avoid redundant setup attempts.
-    const alreadyExists = await isPolicyExist(policyName, log);
+    const alreadyExists = await isPolicyExist(safePolicyName, log);
     if (alreadyExists) {
-        log(`CS Application Access Policy "${policyName}" already exists. Skipping setup.`);
+        log(`CS Application Access Policy "${safePolicyName}" already exists. Skipping setup.`);
 
         // Even if the policy exists, we still want to ensure it's granted to the specified group. So we won't return here and will proceed to grant the policy.
         const script = [
-            `Set-CsApplicationAccessPolicy -Identity "${policyName}" -AppIds "${teamsAppId}" -Description "MS teams access policy for Teams Meeting Ingest"`,
+            `Set-CsApplicationAccessPolicy -Identity ${psSingleQuote(safePolicyName)} -AppIds ${psSingleQuote(teamsAppId)} -Description "MS teams access policy for Teams Meeting Ingest"`,
         ].join('; ');
         const result = await runPowerShell(script, log, 'Policy already exists. added appId to the policy.');
         log(`Set-CsApplicationAccessPolicy output: ${result.stdout.trim()}`);
@@ -219,12 +239,12 @@ export async function grantPolicy(log: ProgressLogger, policyName: string, group
     }
 
     // New-CsApplicationAccessPolicy -Identity "Teams-Meeting-Policy" -AppIds "TEAMS_APP_ID"  -Description "MS teams access policy for Teams Meeting Ingest"
-    log(`Setting up CS Application Access Policy for ${policyName}...`);
+    log(`Setting up CS Application Access Policy for ${safePolicyName}...`);
     const script = [
         "$ErrorActionPreference = 'Stop'",
         "$ProgressPreference = 'SilentlyContinue'",
         'Connect-MicrosoftTeams -ErrorAction Stop',
-        `Grant-CsApplicationAccessPolicy -Group "${groupId}" -PolicyName "${policyName}" -Rank 1`
+        `Grant-CsApplicationAccessPolicy -Group ${psSingleQuote(safeGroupId)} -PolicyName ${psSingleQuote(safePolicyName)} -Rank 1`
     ].join('; ');
 
     const result = await runPowerShell(script, log, 'Grant: CS Application Access Policy grant is complete.');
@@ -537,12 +557,13 @@ export async function grantPolicyToUser(log: ProgressLogger, policyName: string,
         };
     }
 
-    log(`Start granting policy "${policyName}" to user(s): ${users.join(', ')}...`);
+    const safePolicyName = assertPolicyName(policyName);
+    log(`Start granting policy "${safePolicyName}" to user(s): ${users.join(', ')}...`);
     const teamsAppId = getTeamsAppId(log);
     const targetUsers = users.map((user) => `'${user.replace(/'/g, "''")}'`).join(', ');
     const script = withTeamsLoginCheck([
-        `$TargetPolicyName = "${policyName}"`,
-        `$TargetAppId = "${teamsAppId}"`,
+        `$TargetPolicyName = ${psSingleQuote(safePolicyName)}`,
+        `$TargetAppId = ${psSingleQuote(teamsAppId)}`,
         `$targetUsers = @(${targetUsers})`,
         '$results = @()',
         `function Get-AssignedUserPolicyName {
@@ -646,9 +667,11 @@ export async function grantPolicyToGroup(log: ProgressLogger, policyName: string
         };
     }
 
-    log(`Start granting policy "${policyName}" to group(s): ${groups.join(', ')}...`);
-    const script = withTeamsLoginCheck(groups.map(group => `Grant-CsApplicationAccessPolicy -Group "${group}" -PolicyName "${policyName}" -ErrorAction Stop`));
-    const result = await runPowerShell(script, log, `Policy "${policyName}" granted to group(s): ${groups.join(', ')}.`);
+    const safePolicyName = assertPolicyName(policyName);
+    const safeGroups = groups.map(assertGroupId);
+    log(`Start granting policy "${safePolicyName}" to group(s): ${safeGroups.join(', ')}...`);
+    const script = withTeamsLoginCheck(safeGroups.map(group => `Grant-CsApplicationAccessPolicy -Group ${psSingleQuote(group)} -PolicyName ${psSingleQuote(safePolicyName)} -ErrorAction Stop`));
+    const result = await runPowerShell(script, log, `Policy "${safePolicyName}" granted to group(s): ${safeGroups.join(', ')}.`);
 
     return {
         success: true,
@@ -661,9 +684,10 @@ export async function grantPolicyToGroup(log: ProgressLogger, policyName: string
 }
 
 export async function grantPolicyToGlobal(log: ProgressLogger, policyName: string): Promise<any> {
-    log(`Start granting global policy "${policyName}"...`);
-    const script = withTeamsLoginCheck([`Grant-CsApplicationAccessPolicy -Global -PolicyName "${policyName}" -ErrorAction Stop`]);
-    const result = await runPowerShell(script, log, `Global policy "${policyName}" granted successfully.`);
+    const safePolicyName = assertPolicyName(policyName);
+    log(`Start granting global policy "${safePolicyName}"...`);
+    const script = withTeamsLoginCheck([`Grant-CsApplicationAccessPolicy -Global -PolicyName ${psSingleQuote(safePolicyName)} -ErrorAction Stop`]);
+    const result = await runPowerShell(script, log, `Global policy "${safePolicyName}" granted successfully.`);
 
     return {
         success: true,

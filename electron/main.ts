@@ -6,6 +6,8 @@ import { grantAccessPolicy, runPreLoginPowerShellTasks, SetupResult } from './te
 import { createEnterpriseLogger } from './util/logger/enterprise-logger';
 import { installAzureCli, installHomebrew, installPowerShell } from './install-cli';
 import { searchGroups, searchUsers, searchUsersByEmails } from './commands';
+import { EMAIL_BATCH_LIMIT, isValidEmail, isValidGuid, isValidPolicyName, isValidSearchText } from './util/validate';
+import { GrantType, GRANT_TYPE_VALUES } from './util/grant-types';
 import {
   isAzCliInstalled,
   isPowerShellInstalled,
@@ -117,7 +119,9 @@ ipcMain.handle('settings:get-policy-name', async () => {
   elog.log('Reading policy name setting...');
   elog.addSummary('Get policy name setting');
   const settings = readAppSettings();
-  const policyName = typeof settings.grantPolicyName === 'string' ? settings.grantPolicyName : '';
+  // Re-validate on read: never propagate a policy name from settings.json that
+  // would not pass input validation (defends the settings reload path, 1352156).
+  const policyName = isValidPolicyName(settings.grantPolicyName) ? settings.grantPolicyName!.trim() : '';
   elog.log(`Policy name retrieved: "${policyName}"`);
   elog.addSummary(`Policy name: "${policyName}"`);
   return {
@@ -132,13 +136,13 @@ ipcMain.handle('settings:set-policy-name', async (_event, payload: { policyName?
   elog.addSummary('Set policy name operation started');
 
   const value = typeof payload === 'string' ? payload : payload?.policyName;
-  if (typeof value !== 'string') {
-    elog.error('Invalid policy name provided — not a string.');
-    elog.addSummary('Failed: policyName must be a string.');
+  if (!isValidPolicyName(value)) {
+    elog.error('Invalid policy name provided.');
+    elog.addSummary('Failed: invalid policy name.');
     return {
       success: false,
       error: 'invalid-policy-name',
-      message: 'policyName must be a string'
+      message: 'Invalid policy name. Use only letters, numbers, space, dot, hyphen or underscore (max 64).'
     };
   }
 
@@ -277,9 +281,25 @@ ipcMain.handle('grant-policy', async (_event, data) => {
   elog.addSummary('Grant policy operation started');
 
   try {
+    // Validate payload shape before destructuring — never trust renderer-supplied data
+    if (data === null || typeof data !== 'object' || Array.isArray(data)) {
+      elog.error('Invalid payload: expected a plain object.');
+      elog.addSummary('Failed: malformed payload.');
+      elog.finish(false);
+      return { success: false, error: 'invalid-payload', message: 'Malformed request payload.' };
+    }
+
     const { policyName, type, users, groups } = data;
 
-    if (!policyName || typeof policyName !== 'string') {
+    // Allowlist the type field — never allow arbitrary strings to reach the grant logic
+    if (!GRANT_TYPE_VALUES.includes(type as GrantType)) {
+      elog.error('Invalid type field in payload.');
+      elog.addSummary('Failed: invalid type field.');
+      elog.finish(false);
+      return { success: false, error: 'invalid-type', message: `type must be one of: ${GRANT_TYPE_VALUES.join(', ')}.` };
+    }
+
+    if (!isValidPolicyName(policyName)) {
       log('Invalid policy name provided.');
       elog.error('Invalid policy name provided.');
       elog.addSummary('Invalid policy name provided.');
@@ -287,11 +307,11 @@ ipcMain.handle('grant-policy', async (_event, data) => {
       return {
         success: false,
         error: 'invalid-policy-name',
-        message: 'A valid policy name must be provided.'
+        message: 'Invalid policy name. Use only letters, numbers, space, dot, hyphen or underscore (max 64).'
       };
     }
 
-    if (type === 'user' && (!users || !Array.isArray(users) || users.length === 0)) {
+    if (type === GrantType.User && (!users || !Array.isArray(users) || users.length === 0)) {
       log('No users specified for user-type policy grant.');
       elog.error('No users specified for user-type policy grant.');
       elog.addSummary('No users specified for user-type policy grant.');
@@ -303,7 +323,7 @@ ipcMain.handle('grant-policy', async (_event, data) => {
       };
     }
 
-    if (type === 'group' && (!groups || !Array.isArray(groups) || groups.length === 0)) {
+    if (type === GrantType.Group && (!groups || !Array.isArray(groups) || groups.length === 0)) {
       log('No groups specified for group-type policy grant.');
       elog.error('No groups specified for group-type policy grant.');
       elog.addSummary('No groups specified for group-type policy grant.');
@@ -312,6 +332,18 @@ ipcMain.handle('grant-policy', async (_event, data) => {
         success: false,
         error: 'no-groups-specified',
         message: 'At least one group must be specified for a group-type policy grant.'
+      };
+    }
+
+    if (type === GrantType.Group && !groups.every((group: unknown) => isValidGuid(group))) {
+      log('One or more group ids are not valid GUIDs.');
+      elog.error('One or more group ids are not valid GUIDs.');
+      elog.addSummary('Invalid group id provided.');
+      elog.finish(false);
+      return {
+        success: false,
+        error: 'invalid-group-id',
+        message: 'Each selected group must be a valid Azure AD object id (GUID).'
       };
     }
 
@@ -325,7 +357,7 @@ ipcMain.handle('grant-policy', async (_event, data) => {
       policyName,
       users,
       groups,
-      message: `Policy "${policyName}" granted to ${type === 'user' ? `users ${users.join(', ')}` : `groups ${groups.join(', ')}`} successfully.`,
+      message: `Policy "${policyName}" granted to ${type === GrantType.User ? `users ${users.join(', ')}` : `groups ${groups.join(', ')}`} successfully.`,
       data: grantOperationResult || null
     };
   } catch (err: any) {
@@ -424,6 +456,11 @@ ipcMain.handle('search-users', async (_event, payload: { searchText?: string; pa
   const elog = createAppLogger();
   const searchText = typeof payload === 'string' ? payload : payload?.searchText || '';
   const page = typeof payload === 'string' ? 0 : payload?.page ?? 0;
+
+  if (!isValidSearchText(searchText)) {
+    return { success: false, error: 'invalid-search-text', message: 'Search text exceeds maximum allowed length.', data: { users: [], total: 0 } };
+  }
+
   elog.log(`Searching users — query: "${searchText}", page: ${page}`);
   elog.addSummary(`Search users: query="${searchText}" page=${page}`);
 
@@ -459,6 +496,16 @@ ipcMain.handle('search-users-by-emails', async (_event, payload: { emails?: stri
     : Array.isArray(payload?.emails)
       ? payload.emails
       : [];
+
+  if (emails.length > EMAIL_BATCH_LIMIT) {
+    return { success: false, error: 'too-many-emails', message: `Maximum ${EMAIL_BATCH_LIMIT} email addresses per request.`, data: { users: [] } };
+  }
+
+  const invalidEmail = emails.find((e: unknown) => !isValidEmail(e));
+  if (invalidEmail !== undefined) {
+    return { success: false, error: 'invalid-email', message: 'One or more email addresses are not valid.', data: { users: [] } };
+  }
+
   elog.log(`Resolving users by emails — ${emails.length} address(es) provided.`);
   elog.addSummary(`Search users by emails: ${emails.length} address(es)`);
 
@@ -491,6 +538,11 @@ ipcMain.handle('search-groups', async (_event, payload: { searchText?: string; p
   const elog = createAppLogger();
   const searchText = typeof payload === 'string' ? payload : payload?.searchText || '';
   const page = typeof payload === 'string' ? 0 : payload?.page ?? 0;
+
+  if (!isValidSearchText(searchText)) {
+    return { success: false, error: 'invalid-search-text', message: 'Search text exceeds maximum allowed length.', data: { groups: [], total: 0 } };
+  }
+
   elog.log(`Searching groups — query: "${searchText}", page: ${page}`);
   elog.addSummary(`Search groups: query="${searchText}" page=${page}`);
 

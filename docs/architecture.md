@@ -377,6 +377,58 @@ No commands. Done.
 
 ## Cross-Cutting Concerns
 
+### Security — renderer loads only local content
+
+#### Assumption
+
+The BrowserWindow renderer loads **only local content**:
+
+- **Production** — `file://` from the bundled `dist/index.html`
+- **Development** — `http://localhost:5173` (Vite dev server)
+
+This assumption is treated as a **machine-enforced control**, not a convention. If it silently breaks, the renderer could be navigated to an external origin and used as an attack surface against the privileged main process.
+
+#### Enforced controls
+
+The six controls below together enforce the assumption. They are defined as named, testable constants in [electron/util/security-constants.ts](../electron/util/security-constants.ts) and wired into [electron/window.ts](../electron/window.ts).
+
+| # | Control | Where set | What it prevents |
+|---|---|---|---|
+| 1 | `sandbox: true` | `BrowserWindow` `webPreferences` | Renderer process runs in the OS sandbox — Node.js built-ins are unreachable even if the preload bridge is bypassed |
+| 2 | `contextIsolation: true` | `BrowserWindow` `webPreferences` | Renderer JS context is isolated from the preload context — `window` cannot reach `ipcRenderer` directly |
+| 3 | `nodeIntegration: false` | `BrowserWindow` `webPreferences` | Belt-and-suspenders: Node APIs are not injected into the renderer even without `contextIsolation` |
+| 4 | `will-navigate` handler | `webContents.on('will-navigate', …)` | Any renderer-initiated navigation to a non-local URL is cancelled before the request leaves the process; uses `isLocalUrl()` from [electron/util/url.ts](../electron/util/url.ts) |
+| 5 | `setWindowOpenHandler` | `webContents.setWindowOpenHandler(…)` | `window.open()` and `target="_blank"` links are denied in-process; `https://` links are forwarded to the system browser via `shell.openExternal` |
+| 6 | Content-Security-Policy | `session.webRequest.onHeadersReceived` (dev) and `<meta http-equiv="Content-Security-Policy">` in `index.html` (prod) | Prevents inline script injection and restricts `script-src` to `'self'`; `object-src 'none'` blocks plugins; `form-action 'none'` blocks cross-origin form posts |
+
+#### IPC boundary hardening
+
+Controls 1–6 protect the browser process. At the IPC boundary, the main process additionally validates every payload before acting on it — it never trusts renderer-supplied data:
+
+| IPC channel | Validation applied |
+|---|---|
+| `grant-policy` | Payload must be a plain object; `type` must be exactly `"user"` or `"group"`; `policyName` must match the `POLICY_NAME_RE` allowlist; group IDs must be valid GUIDs |
+| `settings:set-policy-name` | `policyName` validated against `POLICY_NAME_RE` before write |
+| `settings:get-policy-name` | Stored value re-validated on read — defends against a tampered `settings.json` |
+| `search-users` / `search-groups` | `searchText` capped at 200 characters |
+| `search-users-by-emails` | Each address validated against an email-shape pattern; batch capped at 500 |
+
+Validation logic lives in [electron/util/validate.ts](../electron/util/validate.ts). The same functions used at runtime are imported directly by the test suite — there is no separate test double that can drift.
+
+#### Test coverage
+
+[electron/test/security-controls.test.ts](../electron/test/security-controls.test.ts) — run with `npm test`.
+
+| Test group | What is asserted |
+|---|---|
+| Controls 1–3 (`SECURE_WEB_PREFERENCES`) | `sandbox`, `contextIsolation`, `nodeIntegration` have the exact required values |
+| Control 4 (`isLocalUrl`) | Allowed: `file://`, `http/https://localhost`. Blocked: all external origins, `data:`, `javascript:`, `blob:`, malformed URLs |
+| Control 5 (`setWindowOpenHandler`) | No unit test possible without a live `BrowserWindow`; enforced by the code-review contract in `window.ts` |
+| Control 6 (`DEV_CSP` / `PROD_CSP`) | Required directives present (`object-src 'none'`, `script-src 'self'`, `base-uri 'self'`, `form-action 'none'`, no `unsafe-eval`); `PROD_CSP` constant verified to match the `index.html` meta tag byte-for-byte |
+| IPC validators | `isValidPolicyName`, `isValidGuid`, `isValidSearchText`, `isValidEmail`, `EMAIL_BATCH_LIMIT` — boundary and injection cases |
+
+---
+
 ### Logging
 
 Every IPC handler in [electron/main.ts](../electron/main.ts) attaches two loggers:

@@ -18,7 +18,9 @@
     "start": "npm run build && electron .",
     "dist": "npm run build && electron-builder",
     "dist:mac": "npm run build && electron-builder --mac",
-    "dist:win": "npm run build && electron-builder --win"
+    "dist:win": "npm run build && electron-builder --win",
+    "test": "vitest run",
+    "test:watch": "vitest"
   },
   "dependencies": {
     "@emotion/react": "^11.11.4",
@@ -36,12 +38,13 @@
     "@vitejs/plugin-react": "^4.3.4",
     "concurrently": "^9.1.0",
     "cross-env": "^7.0.3",
-    "electron": "^42.0.0",
-    "electron-builder": "^26.8.1",
+    "electron": "^42.4.1",
+    "electron-builder": "^26.15.3",
     "sass": "^1.98.0",
     "sass-loader": "^16.0.7",
     "typescript": "^5.7.2",
     "vite": "^6.0.3",
+    "vitest": "^3.2.6",
     "wait-on": "^8.0.1"
   },
   "build": {

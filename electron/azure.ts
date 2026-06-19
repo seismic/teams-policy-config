@@ -1,7 +1,8 @@
 import { shell, clipboard } from 'electron';
 import {
-  getAzCliExecutables,
+  getSafeCwd,
   ProgressLogger,
+  resolveAzCliPath,
   withCommonCliPath,
 } from './util/os-util';
 import { runCommandWithLiveLogs } from './util/powershell';
@@ -20,8 +21,16 @@ export async function runAzLogin(log?: ProgressLogger): Promise<{
   tenantId?: string;
   tenantOnly?: boolean;
 }> {
-  const executables = getAzCliExecutables();
+  // Resolve the Azure CLI to a verified absolute path up front (finding 1352217),
+  // so every spawn uses a fully-qualified path with no PATH/cwd search.
+  const azPath = await resolveAzCliPath();
+  if (!azPath) {
+    const notFound = new Error('Azure CLI was not found.') as NodeJS.ErrnoException;
+    notFound.code = 'ENOENT';
+    throw notFound;
+  }
   const env = withCommonCliPath();
+  const cwd = getSafeCwd();
   const canonicalDeviceLoginUrl = 'https://microsoft.com/devicelogin';
   let deviceUrlOpened = false;
   let lastDeviceCode: string | undefined;
@@ -69,84 +78,69 @@ export async function runAzLogin(log?: ProgressLogger): Promise<{
     }
   };
 
-  let lastError: unknown;
   let stdout = '';
-  for (const executable of executables) {
-    try {
-      log?.(`Starting Azure login using ${executable}...`);
-      log?.('Complete the device-code flow in browser/terminal when prompted.');
-      if (!deviceUrlOpened) {
-        void shell.openExternal(canonicalDeviceLoginUrl)
-          .then(() => {
-            deviceUrlOpened = true;
-            log?.(`Opened browser automatically: ${canonicalDeviceLoginUrl}`);
-          })
-          .catch((openErr) => {
-            log?.(`Could not auto-open browser: ${openErr instanceof Error ? openErr.message : String(openErr)}`);
-          });
-      }
-      await runCommandWithLiveLogs(executable, ['login', '--use-device-code', '--allow-no-subscriptions'], {
-        cwd: process.cwd(),
-        env,
-        log: (line) => {
-          log?.(line);
-          maybeHandleDeviceCodeLine(line);
-        },
-        timeoutMs: 10 * 60 * 1000
+
+  log?.(`Starting Azure login using ${azPath}...`);
+  log?.('Complete the device-code flow in browser/terminal when prompted.');
+  if (!deviceUrlOpened) {
+    void shell.openExternal(canonicalDeviceLoginUrl)
+      .then(() => {
+        deviceUrlOpened = true;
+        log?.(`Opened browser automatically: ${canonicalDeviceLoginUrl}`);
+      })
+      .catch((openErr) => {
+        log?.(`Could not auto-open browser: ${openErr instanceof Error ? openErr.message : String(openErr)}`);
       });
-      log?.('Azure login command completed. Fetching account context...');
-
-      try {
-        // Preferred path: account has subscription context.
-        const accountResult = await runCommandWithLiveLogs(executable, ['account', 'show', '--output', 'json'], {
-          cwd: process.cwd(),
-          env,
-          timeoutMs: 30 * 1000
-        });
-        stdout = accountResult.stdout;
-        log?.('Subscription context found via az account show.');
-      } catch (accountError) {
-        // Fallback path: tenant-only sign-in (no subscription access available).
-        log?.('No subscription context detected. Falling back to tenant-level context...');
-        const tenantListResult = await runCommandWithLiveLogs(executable, ['account', 'tenant', 'list', '--output', 'json'], {
-          cwd: process.cwd(),
-          env,
-          timeoutMs: 30 * 1000
-        });
-        const tenantList = JSON.parse(tenantListResult.stdout || '[]');
-        const firstTenant = Array.isArray(tenantList) ? tenantList[0] : undefined;
-        log?.('Tenant-level login succeeded.');
-        return {
-          accountName: firstTenant?.displayName,
-          userName: undefined,
-          tenantId: firstTenant?.tenantId,
-          tenantOnly: true
-        };
-      }
-
-      lastError = undefined;
-      break;
-    } catch (error) {
-      const err = error as NodeJS.ErrnoException & { stderr?: string };
-      const combinedOutput = [err.stderr ?? '', err.message ?? ''].join('\n');
-      const isNotFound = err.code === 'ENOENT' || /is not recognized|not found|command not found/i.test(combinedOutput);
-      if (isNotFound) {
-        log?.(`Azure CLI executable not found: ${executable}`);
-        lastError = error;
-        continue;
-      }
-      const stderr = err.stderr;
-      if (stderr) {
-        log?.(`Azure login failed: ${stderr.slice(0, 400)}`);
-      } else {
-        log?.(`Azure login failed: ${err.message}`);
-      }
-      throw error;
-    }
   }
 
-  if (lastError) {
-    throw lastError;
+  try {
+    await runCommandWithLiveLogs(azPath, ['login', '--use-device-code', '--allow-no-subscriptions'], {
+      cwd,
+      env,
+      log: (line) => {
+        log?.(line);
+        maybeHandleDeviceCodeLine(line);
+      },
+      timeoutMs: 10 * 60 * 1000
+    });
+  } catch (error) {
+    const err = error as NodeJS.ErrnoException & { stderr?: string };
+    const stderr = err.stderr;
+    if (stderr) {
+      log?.(`Azure login failed: ${stderr.slice(0, 400)}`);
+    } else {
+      log?.(`Azure login failed: ${err.message}`);
+    }
+    throw error;
+  }
+  log?.('Azure login command completed. Fetching account context...');
+
+  try {
+    // Preferred path: account has subscription context.
+    const accountResult = await runCommandWithLiveLogs(azPath, ['account', 'show', '--output', 'json'], {
+      cwd,
+      env,
+      timeoutMs: 30 * 1000
+    });
+    stdout = accountResult.stdout;
+    log?.('Subscription context found via az account show.');
+  } catch (accountError) {
+    // Fallback path: tenant-only sign-in (no subscription access available).
+    log?.('No subscription context detected. Falling back to tenant-level context...');
+    const tenantListResult = await runCommandWithLiveLogs(azPath, ['account', 'tenant', 'list', '--output', 'json'], {
+      cwd,
+      env,
+      timeoutMs: 30 * 1000
+    });
+    const tenantList = JSON.parse(tenantListResult.stdout || '[]');
+    const firstTenant = Array.isArray(tenantList) ? tenantList[0] : undefined;
+    log?.('Tenant-level login succeeded.');
+    return {
+      accountName: firstTenant?.displayName,
+      userName: undefined,
+      tenantId: firstTenant?.tenantId,
+      tenantOnly: true
+    };
   }
 
   let account: any = {};

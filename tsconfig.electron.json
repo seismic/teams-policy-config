@@ -10,7 +10,12 @@
     "inlineSources": true,
     "outDir": "dist-electron",
     "rootDir": "electron",
-    "types": ["node", "electron"]
+    "types": [
+      "node",
+      "electron"
+    ]
   },
-  "include": ["electron/**/*.ts"]
+  "include": [
+    "electron/**/*.ts"
+  ]
 }

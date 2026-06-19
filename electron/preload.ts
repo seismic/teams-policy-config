@@ -1,9 +1,16 @@
 import { contextBridge, ipcRenderer } from 'electron';
 
+interface GrantPolicyPayload {
+  policyName: string;
+  type: 'user' | 'group' | 'global';
+  users?: string[];
+  groups?: string[];
+}
+
 contextBridge.exposeInMainWorld('electronAPI', {
   setupEnvironment: () => ipcRenderer.invoke('setup-environment'),
   startAzLogin: () => ipcRenderer.invoke('start-az-login'),
-  grantPolicy: (data: any) => ipcRenderer.invoke('grant-policy', data),
+  grantPolicy: (data: GrantPolicyPayload) => ipcRenderer.invoke('grant-policy', data),
   searchUsers: (searchText: string, page: number = 0) => ipcRenderer.invoke('search-users', { searchText, page }),
   resolveUsersByEmails: (emails: string[]) => ipcRenderer.invoke('search-users-by-emails', { emails }),
   searchGroups: (searchText: string, page: number = 0) => ipcRenderer.invoke('search-groups', { searchText, page }),

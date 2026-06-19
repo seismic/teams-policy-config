@@ -14,7 +14,11 @@ The build is produced by [`electron-builder`](https://www.electron.build/) and i
 - You must build the macOS artifact **on a Mac** — `electron-builder` cannot cross-compile a signed macOS `.dmg` from Windows or Linux.
 - Both **Apple Silicon (arm64)** and **Intel (x64)** Macs are supported. By default the build targets the architecture of the host machine.
 
-### 1.2 Tooling
+### 1.2 Terminal Permissions
+
+ > If you are using the integrated terminal inside a code editor (such as **VS Code** or **Cursor**), the terminal runs as your current user (there is no separate “Administrator” mode on macOS). For commands that require elevation, run them with `sudo` when prompted, or run the build steps directly in Terminal/iTerm2.
+
+### 1.3 Tooling
 
 | Tool          | Required Version           | Notes                                              |
 |---------------|----------------------------|----------------------------------------------------|
@@ -42,7 +46,7 @@ node -v   # v24.15.0
 npm -v
 ```
 
-### 1.3 Repository Checkout
+### 1.4 Repository Checkout
 
 ```bash
 git clone <repo-url>

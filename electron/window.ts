@@ -1,8 +1,12 @@
 import fs from 'node:fs';
 import path from 'node:path';
-import { app, BrowserWindow, nativeImage } from 'electron';
+import { app, BrowserWindow, nativeImage, session, shell } from 'electron';
+import { isLocalUrl } from './util/url';
+import { DEV_CSP } from './util/security-constants';
+import { buildSecureWebPreferences, resolveNewWindowAction } from './util/window-security';
 
 const APP_DISPLAY_NAME = 'Teams Policy Config';
+
 
 function applyMacDockIconSafely(): void {
 	const dockIconPath = resolveMacDockIconPath();
@@ -64,6 +68,39 @@ function resolveAppIconPath(): string | undefined {
 	return undefined;
 }
 
+/**
+ * Security assumption (enforced control): the renderer loads ONLY local content.
+ *
+ * Production: BrowserWindow loads dist/index.html via file://
+ * Development: BrowserWindow loads http://localhost:5173 (Vite dev server)
+ *
+ * The following controls make this assumption machine-enforced rather than
+ * advisory:
+ *
+ *  1. sandbox: true         — renderer process runs in the OS sandbox; no Node.js
+ *                             APIs are reachable even if the preload bridge is bypassed.
+ *  2. contextIsolation: true — renderer JS context is isolated from the preload
+ *                             context; window object cannot reach ipcRenderer directly.
+ *  3. nodeIntegration: false — Belt-and-suspenders: Node built-ins are not injected
+ *                             into the renderer even without contextIsolation.
+ *                             (1–3 are applied via buildSecureWebPreferences() from
+ *                             ./util/window-security — unit-tested in the suite below.)
+ *  4. will-navigate handler  — any renderer-initiated navigation to a non-local URL
+ *                             is cancelled before the request leaves the process.
+ *                             Uses isLocalUrl() from ./util/url — the same function
+ *                             that is covered by the security-controls test suite.
+ *  5. setWindowOpenHandler   — window.open() and target="_blank" links are denied
+ *                             in-process; https:// links are forwarded to the system
+ *                             browser via shell.openExternal instead. Decision logic
+ *                             is resolveNewWindowAction() from ./util/window-security,
+ *                             unit-tested in the security-controls suite.
+ *  6. Content-Security-Policy — dev server responses get CSP via onHeadersReceived;
+ *                             production file:// loads get CSP from the meta tag in
+ *                             index.html. Both prohibit object-src and restrict
+ *                             script-src to 'self'.
+ *
+ * Test coverage: electron/test/security-controls.test.ts
+ */
 export function createWindow(): void {
 	const iconPath = resolveAppIconPath();
 
@@ -71,20 +108,50 @@ export function createWindow(): void {
 		applyMacDockIconSafely();
 	}
 
+	const devServerUrl = process.env.VITE_DEV_SERVER_URL;
+
+	// Inject CSP for dev-server (localhost) requests only.
+	// Production CSP comes from the <meta> tag in index.html.
+	if (devServerUrl) {
+		session.defaultSession.webRequest.onHeadersReceived(
+			{ urls: ['http://localhost:*/*', 'https://localhost:*/*'] },
+			(details, callback) => {
+				callback({
+					responseHeaders: {
+						...details.responseHeaders,
+						'Content-Security-Policy': [DEV_CSP],
+					},
+				});
+			}
+		);
+	}
+
 	const win = new BrowserWindow({
 		width: 900,
 		height: 700,
 		...(iconPath ? { icon: iconPath } : {}),
-		webPreferences: {
-			preload: path.join(__dirname, 'preload.js'),
-			nodeIntegration: false,
-			contextIsolation: true
-		},
+		webPreferences: buildSecureWebPreferences(path.join(__dirname, 'preload.js')),
 	});
 	win.maximize();
 	win.setTitle(APP_DISPLAY_NAME);
 
-	const devServerUrl = process.env.VITE_DEV_SERVER_URL;
+	// Block navigation away from local content (prevents renderer-initiated redirects to external origins)
+	win.webContents.on('will-navigate', (event, url) => {
+		if (!isLocalUrl(url)) {
+			event.preventDefault();
+		}
+	});
+
+	// Deny all new-window creation; open https:// links in the system browser instead.
+	// Decision logic lives in resolveNewWindowAction() (unit-tested in security-controls.test.ts).
+	win.webContents.setWindowOpenHandler(({ url }) => {
+		const decision = resolveNewWindowAction(url);
+		if (decision.openExternal) {
+			shell.openExternal(decision.openExternal).catch((err) => console.error('Failed to open external URL:', err));
+		}
+		return { action: decision.action };
+	});
+
 	if (devServerUrl) {
 		win.loadURL(devServerUrl).catch((err) => {
 			console.error('Failed to load Vite dev server URL:', devServerUrl, err);
@@ -109,14 +176,16 @@ export function createWindow(): void {
 		win.webContents.executeJavaScript(`window.dispatchEvent(new MouseEvent('contextmenu', {bubbles:true, clientX:${params.x}, clientY:${params.y}}));`);
 	});
 
-	// Add DevTools shortcut (Ctrl+Shift+I or Cmd+Opt+I)
-	win.webContents.on('before-input-event', (event, input) => {
-		const isDevTools =
-			(input.control && input.shift && input.key.toLowerCase() === 'i') ||
-			(input.meta && input.alt && input.key.toLowerCase() === 'i');
-		if (isDevTools) {
-			win.webContents.openDevTools({ mode: 'detach' });
-			event.preventDefault();
-		}
-	});
+	// DevTools shortcut — development builds only (app.isPackaged is false in dev)
+	if (!app.isPackaged) {
+		win.webContents.on('before-input-event', (event, input) => {
+			const isDevTools =
+				(input.control && input.shift && input.key.toLowerCase() === 'i') ||
+				(input.meta && input.alt && input.key.toLowerCase() === 'i');
+			if (isDevTools) {
+				win.webContents.openDevTools({ mode: 'detach' });
+				event.preventDefault();
+			}
+		});
+	}
 }
