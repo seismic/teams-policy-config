@@ -25,10 +25,18 @@ async function installPowerShellOnWindows(log: ProgressLogger): Promise<Record<s
 	const wingetAvailable = await isCommandAvailable('winget', ['--version']);
 	if (wingetAvailable) {
 		try {
-			const psScript = `$p = Start-Process -FilePath winget -ArgumentList @('install','--id','Microsoft.PowerShell','--source','winget','--accept-source-agreements','--accept-package-agreements','--silent') -Verb RunAs -Wait -PassThru; exit $p.ExitCode`;
+			// Resolve the full path to winget in the current (non-elevated) context so
+			// that the elevated Start-Process can find it. winget is a per-user AppX app
+			// and the elevated user's PATH typically lacks the WindowsApps folder.
+			const psScript = [
+				`$winget = (Get-Command winget -ErrorAction SilentlyContinue | Select-Object -ExpandProperty Source)`,
+				`if (-not $winget) { Write-Error 'winget not found'; exit 1 }`,
+				`$p = Start-Process -FilePath $winget -ArgumentList @('install','--id','Microsoft.PowerShell','--source','winget','--accept-source-agreements','--accept-package-agreements','--silent') -Verb RunAs -Wait -PassThru`,
+				`exit $p.ExitCode`,
+			].join('; ');
 			const { stdout } = await execFileAsync(
 				'powershell.exe',
-				['-NoProfile', '-NonInteractive', '-Command', psScript],
+				['-NoProfile', '-Command', psScript],
 				{ cwd: getSafeCwd(), env: withCommonCliPath(), maxBuffer: 50 * 1024 * 1024 }
 			);
 			log('PowerShell installation completed successfully.');
@@ -40,10 +48,12 @@ async function installPowerShellOnWindows(log: ProgressLogger): Promise<Record<s
 			};
 		} catch (error) {
 			const err = error as NodeJS.ErrnoException & { stderr?: string; stdout?: string };
+			const details = (err.stderr ?? '').trim() || (err.stdout ?? '').trim() || err.message || 'winget install failed';
+			log(`PowerShell installation failed: ${details}`);
 			return {
 				success: false,
 				error: 'install-failed',
-				stderr: (err.stderr ?? '').trim() || (err.stdout ?? '').trim() || err.message || 'winget install failed'
+				stderr: details
 			};
 		}
 	}
@@ -86,12 +96,18 @@ async function installAzureCliOnWindows(log: ProgressLogger): Promise<Record<str
 		try {
 			log('Installing Azure CLI via winget. This may take a minute — a Windows permission prompt (UAC) may appear...');
 			// Azure CLI requires a machine-scope MSI install which needs admin rights.
-			// Routing through PowerShell Start-Process -Verb RunAs ensures the UAC
-			// prompt is properly shown rather than silently failing from within Electron.
-			const psScript = `$p = Start-Process -FilePath winget -ArgumentList @('install','--id','Microsoft.AzureCLI','--source','winget','--accept-source-agreements','--accept-package-agreements','--silent') -Verb RunAs -Wait -PassThru; exit $p.ExitCode`;
+			// Resolve the full path to winget in the current (non-elevated) context so
+			// that the elevated Start-Process can find it — winget is a per-user AppX app
+			// and the elevated user's PATH typically lacks the WindowsApps folder.
+			const psScript = [
+				`$winget = (Get-Command winget -ErrorAction SilentlyContinue | Select-Object -ExpandProperty Source)`,
+				`if (-not $winget) { Write-Error 'winget not found'; exit 1 }`,
+				`$p = Start-Process -FilePath $winget -ArgumentList @('install','--id','Microsoft.AzureCLI','--source','winget','--accept-source-agreements','--accept-package-agreements','--silent') -Verb RunAs -Wait -PassThru`,
+				`exit $p.ExitCode`,
+			].join('; ');
 			const { stdout } = await execFileAsync(
 				'powershell.exe',
-				['-NoProfile', '-NonInteractive', '-Command', psScript],
+				['-NoProfile', '-Command', psScript],
 				{ cwd: getSafeCwd(), env: withCommonCliPath(), maxBuffer: 50 * 1024 * 1024 }
 			);
 			log('Azure CLI installation completed successfully.');
@@ -102,10 +118,12 @@ async function installAzureCliOnWindows(log: ProgressLogger): Promise<Record<str
 			};
 		} catch (error) {
 			const err = error as NodeJS.ErrnoException & { stderr?: string; stdout?: string };
+			const details = (err.stderr ?? '').trim() || (err.stdout ?? '').trim() || err.message || 'winget install failed';
+			log(`Azure CLI installation failed: ${details}`);
 			return {
 				success: false,
 				error: 'install-failed',
-				stderr: (err.stderr ?? '').trim() || (err.stdout ?? '').trim() || err.message || 'winget install failed'
+				stderr: details
 			};
 		}
 	}
