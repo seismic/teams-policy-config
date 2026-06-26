@@ -270,9 +270,15 @@ export async function isAzCliInstalled(log?: ProgressLogger): Promise<boolean> {
     }
 
     try {
-        await execFileAsync(azPath, ['--version'], {
+        // .cmd files on Windows cannot be executed by execFile directly — they require
+        // cmd.exe via shell:true. When using shell:true, quote the path so that spaces
+        // in "C:\Program Files\..." are not split by cmd.exe (same pattern as powershell.ts).
+        const isCmdScript = isWindows && azPath.toLowerCase().endsWith('.cmd');
+        const probeExe = isCmdScript ? `"${azPath}"` : azPath;
+        await execFileAsync(probeExe, ['--version'], {
             cwd: getSafeCwd(),
-            env: withCommonCliPath()
+            env: withCommonCliPath(),
+            shell: isCmdScript,
         });
         log?.(`Detected Azure CLI executable: ${azPath}`);
         return true;
