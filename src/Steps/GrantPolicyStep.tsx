@@ -54,6 +54,9 @@ type GrantTypeSelectionStepProps = {
     groupsTotal?: number;
     onValuesChange?: (values: any) => void;
     isSubmitting?: boolean;
+    initialType?: string;
+    initialUsers?: Option[];
+    initialGroups?: Option[];
 };
 
 const POLICY_TYPE_OPTIONS = [
@@ -109,12 +112,12 @@ function mergeUniqueOptions(existing: Option[], incoming: Option[]): Option[] {
     return Array.from(map.values());
 }
 
-export default function GrantPolicyStep({ onValuesChange, isSubmitting }: GrantTypeSelectionStepProps) {
-    const [selectedType, setSelectedType] = useState('group');
+export default function GrantPolicyStep({ onValuesChange, isSubmitting, initialType, initialUsers, initialGroups }: GrantTypeSelectionStepProps) {
+    const [selectedType, setSelectedType] = useState(initialType || 'group');
     const [policyName, setPolicyName] = useState(DEFAULT_POLICY_NAME);
     const hasLoadedSavedPolicyName = useRef(false);
-    const [selectedUsers, setSelectedUsers] = useState<Option[]>([]);
-    const [selectedGroups, setSelectedGroups] = useState<Option[]>([]);
+    const [selectedUsers, setSelectedUsers] = useState<Option[]>(initialUsers ?? []);
+    const [selectedGroups, setSelectedGroups] = useState<Option[]>(initialGroups ?? []);
     const [uploadedCsvFileName, setUploadedCsvFileName] = useState('');
     const [isCsvResolvingUsers, setIsCsvResolvingUsers] = useState(false);
     const [csvResolvedCount, setCsvResolvedCount] = useState(0);

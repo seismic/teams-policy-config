@@ -3,18 +3,19 @@ import Button from './components/Button';
 import Stepper from './components/Stepper';
 import { IconButton, Tooltip } from '@mui/material';
 import FolderOpenIcon from '@mui/icons-material/FolderOpen';
-import { AzureLoginStep, CompleteStep, StartSetupStep, GrantPolicyStep } from './Steps';
+import { AzureLoginStep, CompleteStep, StartSetupStep, GrantPolicyStep, ReviewStep } from './Steps';
 
 enum WizardStep {
   SetupEnvironment = 0,
   AzureLogin = 1,
   GrantPolicy = 2,
-  Finish = 3
+  Review = 3,
+  Finish = 4
 }
 
-const LAST_WIZARD_STEP = WizardStep.GrantPolicy;
-const WIZARD_STEP_LABELS = ['Setup Environment', 'Azure Login', 'Grant Policy', 'Complete'];
-const DOT_STEPS_TOTAL = 3;
+const LAST_WIZARD_STEP = WizardStep.Review;
+const WIZARD_STEP_LABELS = ['Setup Environment', 'Azure Login', 'Grant Policy', 'Review', 'Complete'];
+const DOT_STEPS_TOTAL = 4;
 
 type UserGrantDetail = {
   user: string;
@@ -96,7 +97,7 @@ export default function App() {
         (selectedType === 'group' && hasGroupSelection)
       );
     const step3Valid = isGrantPolicyComplete || isGrantPolicyReady;
-    const step4Valid = true;
+    const step4Valid = true; // Review is always valid — it's read-only
     return [step1Valid, step2Valid, step3Valid, step4Valid];
   }, [isEnvironmentSetupComplete, isAzureLoginComplete, isGrantPolicyComplete, grantPolicyValues]);
 
@@ -589,6 +590,18 @@ export default function App() {
               groupsTotal={groupsTotal}
               onValuesChange={setGrantPolicyValues}
               isSubmitting={isGrantSubmitting}
+              initialType={grantPolicyValues.type}
+              initialUsers={grantPolicyValues.users}
+              initialGroups={grantPolicyValues.groups}
+            />
+          )}
+
+          {currentStep === WizardStep.Review && (
+            <ReviewStep
+              policyName={grantPolicyValues.policyName}
+              type={grantPolicyValues.type}
+              users={grantPolicyValues.users ?? []}
+              groups={grantPolicyValues.groups ?? []}
             />
           )}
 
@@ -605,10 +618,7 @@ export default function App() {
 
         <div className="actions" aria-label="Wizard navigation">
           {currentStep === WizardStep.Finish ? (
-            <Button
-              variant="contained"
-              onClick={goToFirstStep}
-            >
+            <Button variant="contained" onClick={goToFirstStep}>
               Restart
             </Button>
           ) : (
