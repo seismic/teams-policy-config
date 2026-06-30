@@ -14,12 +14,13 @@ import ClearIcon from '@mui/icons-material/Clear';
 import PublicIcon from '@mui/icons-material/Public';
 import TextField from '../components/TextField';
 import { Option } from '../components/MultiSelect';
+import { POLICY_TARGET_TYPE, PolicyTargetType } from '../policyTypes';
 
 const PAGE_SIZE = 10;
 
 type ReviewStepProps = {
     policyName: string;
-    type: string;
+    type: PolicyTargetType;
     users: Option[];
     groups: Option[];
 };
@@ -28,7 +29,7 @@ export default function ReviewStep({ policyName, type, users, groups }: ReviewSt
     const [search, setSearch] = useState('');
     const [page, setPage] = useState(1);
 
-    const items: Option[] = type === 'user' ? users : type === 'group' ? groups : [];
+    const items: Option[] = type === POLICY_TARGET_TYPE.USER ? users : type === POLICY_TARGET_TYPE.GROUP ? groups : [];
 
     const filtered = useMemo(() => {
         const q = search.trim().toLowerCase();
@@ -49,7 +50,7 @@ export default function ReviewStep({ policyName, type, users, groups }: ReviewSt
         setPage(1);
     };
 
-    if (type === 'global') {
+    if (type === POLICY_TARGET_TYPE.GLOBAL) {
         return (
             <div className="step-content">
                 <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
@@ -68,8 +69,8 @@ export default function ReviewStep({ policyName, type, users, groups }: ReviewSt
         );
     }
 
-    const entityLabel = type === 'group' ? 'groups' : 'users';
-    const subtitle = type === 'group'
+    const entityLabel = type === POLICY_TARGET_TYPE.GROUP ? 'groups' : 'users';
+    const subtitle = type === POLICY_TARGET_TYPE.GROUP
         ? 'The following groups will be granted a Teams policy'
         : 'The following users will be granted a Teams policy';
 
@@ -113,7 +114,7 @@ export default function ReviewStep({ policyName, type, users, groups }: ReviewSt
                             <ListItem key={String(item.value)} disableGutters sx={{ py: 0.25 }}>
                                 <ListItemText
                                     primary={item.label}
-                                    secondary={type === 'user' ? String(item.value) : undefined}
+                                    secondary={type === POLICY_TARGET_TYPE.USER ? String(item.value) : undefined}
                                     primaryTypographyProps={{ variant: 'body2', fontWeight: 500 }}
                                     secondaryTypographyProps={{ variant: 'caption' }}
                                 />

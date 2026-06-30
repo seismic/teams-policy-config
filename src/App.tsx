@@ -4,6 +4,7 @@ import Stepper from './components/Stepper';
 import { IconButton, Tooltip } from '@mui/material';
 import FolderOpenIcon from '@mui/icons-material/FolderOpen';
 import { AzureLoginStep, CompleteStep, StartSetupStep, GrantPolicyStep, ReviewStep } from './Steps';
+import { POLICY_TARGET_TYPE } from './policyTypes';
 
 enum WizardStep {
   SetupEnvironment = 0,
@@ -58,7 +59,7 @@ export default function App() {
   const [grantPolicyValues, setGrantPolicyValues] = useState<any>({
     policyName: '',
     appId: '',
-    type: 'user',
+    type: POLICY_TARGET_TYPE.USER,
     users: [],
     groups: [],
   });
@@ -92,9 +93,9 @@ export default function App() {
     const isGrantPolicyReady =
       hasPolicyName &&
       (
-        selectedType === 'global' ||
-        (selectedType === 'user' && hasUserSelection) ||
-        (selectedType === 'group' && hasGroupSelection)
+        selectedType === POLICY_TARGET_TYPE.GLOBAL ||
+        (selectedType === POLICY_TARGET_TYPE.USER && hasUserSelection) ||
+        (selectedType === POLICY_TARGET_TYPE.GROUP && hasGroupSelection)
       );
     const step3Valid = isGrantPolicyComplete || isGrantPolicyReady;
     const step4Valid = true; // Review is always valid — it's read-only
@@ -139,7 +140,7 @@ export default function App() {
     setGrantPolicyValues({
       policyName: '',
       appId: '',
-      type: 'user',
+      type: POLICY_TARGET_TYPE.USER,
       users: [],
       groups: [],
     });
@@ -495,12 +496,12 @@ export default function App() {
             return acc;
           }, {})
           : {};
-        const mappedResult = resultData?.targetType === 'group'
+        const mappedResult = resultData?.targetType === POLICY_TARGET_TYPE.GROUP
           ? {
             ...resultData,
             targets: groupNames.length > 0 ? groupNames : resultData.targets,
           }
-          : resultData?.targetType === 'user'
+          : resultData?.targetType === POLICY_TARGET_TYPE.USER
             ? {
               ...resultData,
               details: Array.isArray(resultData.details)
