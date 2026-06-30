@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { POLICY_TARGET_TYPE, PolicyTargetType } from '../policyTypes';
 import {
     Button,
     Dialog,
@@ -54,21 +55,24 @@ type GrantTypeSelectionStepProps = {
     groupsTotal?: number;
     onValuesChange?: (values: any) => void;
     isSubmitting?: boolean;
+    initialType?: PolicyTargetType;
+    initialUsers?: Option[];
+    initialGroups?: Option[];
 };
 
 const POLICY_TYPE_OPTIONS = [
     {
-        value: 'user',
+        value: POLICY_TARGET_TYPE.USER,
         label: 'User level',
         tooltip: 'Assign policy per user. Best when you need user-specific targeting or exceptions.'
     },
     {
-        value: 'group',
+        value: POLICY_TARGET_TYPE.GROUP,
         label: 'Group level',
         tooltip: 'Assign policy to group members. Best for managing policy at team or department scale.'
     },
     {
-        value: 'global',
+        value: POLICY_TARGET_TYPE.GLOBAL,
         label: 'Global level',
         tooltip: 'Assign policy tenant-wide to all users. Use with caution for organization-wide rollout.'
     },
@@ -109,12 +113,12 @@ function mergeUniqueOptions(existing: Option[], incoming: Option[]): Option[] {
     return Array.from(map.values());
 }
 
-export default function GrantPolicyStep({ onValuesChange, isSubmitting }: GrantTypeSelectionStepProps) {
-    const [selectedType, setSelectedType] = useState('group');
+export default function GrantPolicyStep({ onValuesChange, isSubmitting, initialType, initialUsers, initialGroups }: GrantTypeSelectionStepProps) {
+    const [selectedType, setSelectedType] = useState<PolicyTargetType>(initialType ?? POLICY_TARGET_TYPE.GROUP);
     const [policyName, setPolicyName] = useState(DEFAULT_POLICY_NAME);
     const hasLoadedSavedPolicyName = useRef(false);
-    const [selectedUsers, setSelectedUsers] = useState<Option[]>([]);
-    const [selectedGroups, setSelectedGroups] = useState<Option[]>([]);
+    const [selectedUsers, setSelectedUsers] = useState<Option[]>(initialUsers ?? []);
+    const [selectedGroups, setSelectedGroups] = useState<Option[]>(initialGroups ?? []);
     const [uploadedCsvFileName, setUploadedCsvFileName] = useState('');
     const [isCsvResolvingUsers, setIsCsvResolvingUsers] = useState(false);
     const [csvResolvedCount, setCsvResolvedCount] = useState(0);
@@ -194,8 +198,8 @@ export default function GrantPolicyStep({ onValuesChange, isSubmitting }: GrantT
         const values = {
             policyName,
             type: selectedType,
-            users: selectedType === 'user' ? selectedUsers : [],
-            groups: selectedType === 'group' ? selectedGroups : [],
+            users: selectedType === POLICY_TARGET_TYPE.USER ? selectedUsers : [],
+            groups: selectedType === POLICY_TARGET_TYPE.GROUP ? selectedGroups : [],
         };
         onValuesChange?.(values);
     }, [policyName, selectedType, selectedUsers, selectedGroups, onValuesChange]);
@@ -453,7 +457,7 @@ export default function GrantPolicyStep({ onValuesChange, isSubmitting }: GrantT
                     <RadioGroup
                         name="type"
                         value={selectedType}
-                        onChange={e => setSelectedType(e.target.value)}
+                        onChange={e => setSelectedType(e.target.value as unknown as PolicyTargetType)}
                         sx={{ mt: 1 }}
                     >
                         {POLICY_TYPE_OPTIONS.map(option => (
@@ -475,7 +479,7 @@ export default function GrantPolicyStep({ onValuesChange, isSubmitting }: GrantT
                     </RadioGroup>
                 </FormControl>
 
-                {selectedType === 'user' && (
+                {selectedType === POLICY_TARGET_TYPE.USER && (
                     <div className="grant-policy-target-section">
                         <FormControl fullWidth margin="normal" disabled={isSubmitting} required sx={{ mb: 1, mt: 0 }}>
                             <Typography variant="subtitle2" sx={{ fontWeight: 400 }}>
@@ -732,7 +736,7 @@ export default function GrantPolicyStep({ onValuesChange, isSubmitting }: GrantT
                     </div>
                 )}
 
-                {selectedType === 'group' && (
+                {selectedType === POLICY_TARGET_TYPE.GROUP && (
                     <div className="grant-policy-target-section grant-policy-target-section-spaced">
                         {
                             selectedGroups.length > 0 &&

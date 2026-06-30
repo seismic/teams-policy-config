@@ -1,4 +1,5 @@
 import SuccessIndicator from "../components/SuccessIndicator";
+import { POLICY_TARGET_TYPE } from '../policyTypes';
 
 type UserGrantDetail = {
     user: string;
@@ -32,8 +33,8 @@ function toReadableStatus(status: UserGrantDetail['status']): string {
     }
 }
 
-function toStatusDescription(status: UserGrantDetail['status'], targetType: 'user' | 'group'): string {
-    const targetLabel = targetType === 'group' ? 'groups' : 'users';
+function toStatusDescription(status: UserGrantDetail['status'], targetType: typeof POLICY_TARGET_TYPE.USER | typeof POLICY_TARGET_TYPE.GROUP): string {
+    const targetLabel = targetType === POLICY_TARGET_TYPE.GROUP ? 'groups' : 'users';
     switch (status) {
         case 'added-app-id-existing-policy':
             return `These ${targetLabel} had a policy applied to them.`;
@@ -62,8 +63,8 @@ export default function CompleteStep({ grantResult }: CompleteStepProps) {
         }))
         .filter((group) => group.users.length > 0);
 
-    const isUserGrant = grantResult?.targetType === 'user';
-    const isGroupGrant = grantResult?.targetType === 'group';
+    const isUserGrant = grantResult?.targetType === POLICY_TARGET_TYPE.USER;
+    const isGroupGrant = grantResult?.targetType === POLICY_TARGET_TYPE.GROUP;
     const shouldShowStatusGroups = groupedByStatus.length > 0 || (isGroupGrant && targets.length > 0);
     const statusGroups = groupedByStatus.length > 0
         ? groupedByStatus
@@ -88,7 +89,7 @@ export default function CompleteStep({ grantResult }: CompleteStepProps) {
                                 {toReadableStatus(group.status)} ({group.users.length})
                             </div>
                             <div style={{ fontWeight: 400, fontSize: 12, color: '#535B64', marginBottom: 6 }}>
-                                {toStatusDescription(group.status, isGroupGrant ? 'group' : 'user')}
+                                {toStatusDescription(group.status, isGroupGrant ? POLICY_TARGET_TYPE.GROUP : POLICY_TARGET_TYPE.USER)}
                             </div>
                             <ul style={{ margin: 0, paddingLeft: 20 }}>
                                 {group.users.map((user) => (

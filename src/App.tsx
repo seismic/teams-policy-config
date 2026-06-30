@@ -3,18 +3,20 @@ import Button from './components/Button';
 import Stepper from './components/Stepper';
 import { IconButton, Tooltip } from '@mui/material';
 import FolderOpenIcon from '@mui/icons-material/FolderOpen';
-import { AzureLoginStep, CompleteStep, StartSetupStep, GrantPolicyStep } from './Steps';
+import { AzureLoginStep, CompleteStep, StartSetupStep, GrantPolicyStep, ReviewStep } from './Steps';
+import { POLICY_TARGET_TYPE } from './policyTypes';
 
 enum WizardStep {
   SetupEnvironment = 0,
   AzureLogin = 1,
   GrantPolicy = 2,
-  Finish = 3
+  Review = 3,
+  Finish = 4
 }
 
-const LAST_WIZARD_STEP = WizardStep.GrantPolicy;
-const WIZARD_STEP_LABELS = ['Setup Environment', 'Azure Login', 'Grant Policy', 'Complete'];
-const DOT_STEPS_TOTAL = 3;
+const LAST_WIZARD_STEP = WizardStep.Review;
+const WIZARD_STEP_LABELS = ['Setup Environment', 'Azure Login', 'Grant Policy', 'Review', 'Complete'];
+const DOT_STEPS_TOTAL = 4;
 
 type UserGrantDetail = {
   user: string;
@@ -57,7 +59,7 @@ export default function App() {
   const [grantPolicyValues, setGrantPolicyValues] = useState<any>({
     policyName: '',
     appId: '',
-    type: 'user',
+    type: POLICY_TARGET_TYPE.USER,
     users: [],
     groups: [],
   });
@@ -91,12 +93,12 @@ export default function App() {
     const isGrantPolicyReady =
       hasPolicyName &&
       (
-        selectedType === 'global' ||
-        (selectedType === 'user' && hasUserSelection) ||
-        (selectedType === 'group' && hasGroupSelection)
+        selectedType === POLICY_TARGET_TYPE.GLOBAL ||
+        (selectedType === POLICY_TARGET_TYPE.USER && hasUserSelection) ||
+        (selectedType === POLICY_TARGET_TYPE.GROUP && hasGroupSelection)
       );
     const step3Valid = isGrantPolicyComplete || isGrantPolicyReady;
-    const step4Valid = true;
+    const step4Valid = true; // Review is always valid — it's read-only
     return [step1Valid, step2Valid, step3Valid, step4Valid];
   }, [isEnvironmentSetupComplete, isAzureLoginComplete, isGrantPolicyComplete, grantPolicyValues]);
 
@@ -138,7 +140,7 @@ export default function App() {
     setGrantPolicyValues({
       policyName: '',
       appId: '',
-      type: 'user',
+      type: POLICY_TARGET_TYPE.USER,
       users: [],
       groups: [],
     });
@@ -494,12 +496,12 @@ export default function App() {
             return acc;
           }, {})
           : {};
-        const mappedResult = resultData?.targetType === 'group'
+        const mappedResult = resultData?.targetType === POLICY_TARGET_TYPE.GROUP
           ? {
             ...resultData,
             targets: groupNames.length > 0 ? groupNames : resultData.targets,
           }
-          : resultData?.targetType === 'user'
+          : resultData?.targetType === POLICY_TARGET_TYPE.USER
             ? {
               ...resultData,
               details: Array.isArray(resultData.details)
@@ -589,6 +591,18 @@ export default function App() {
               groupsTotal={groupsTotal}
               onValuesChange={setGrantPolicyValues}
               isSubmitting={isGrantSubmitting}
+              initialType={grantPolicyValues.type}
+              initialUsers={grantPolicyValues.users}
+              initialGroups={grantPolicyValues.groups}
+            />
+          )}
+
+          {currentStep === WizardStep.Review && (
+            <ReviewStep
+              policyName={grantPolicyValues.policyName}
+              type={grantPolicyValues.type}
+              users={grantPolicyValues.users ?? []}
+              groups={grantPolicyValues.groups ?? []}
             />
           )}
 
@@ -605,10 +619,7 @@ export default function App() {
 
         <div className="actions" aria-label="Wizard navigation">
           {currentStep === WizardStep.Finish ? (
-            <Button
-              variant="contained"
-              onClick={goToFirstStep}
-            >
+            <Button variant="contained" onClick={goToFirstStep}>
               Restart
             </Button>
           ) : (
