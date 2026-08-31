@@ -121,7 +121,7 @@ Get-CsApplicationAccessPolicy -Identity "<policyName>" -ErrorAction Stop |
 # (session bootstrap prepended)
 $policy = New-CsApplicationAccessPolicy `
     -Identity "<policyName>" `
-    -AppIds "<VITE_APP_ID>" `
+    -AppIds "<appId>" `
     -Description "MS teams access policy for Teams Meeting Ingest"
 $policy | Select-Object Identity, Description, AppIds | ConvertTo-Json -Depth 5 -Compress
 ```
@@ -133,7 +133,7 @@ $policy | Select-Object Identity, Description, AppIds | ConvertTo-Json -Depth 5 
 | Parameter | Source | Description |
 |---|---|---|
 | `-Identity` | User-entered policy name | Unique name for the policy in the tenant. |
-| `-AppIds` | `process.env.VITE_APP_ID` (from `.env`) | The Azure AD application (client) ID of the Teams app. |
+| `-AppIds` | UI-entered `appId` (validated GUID) | The Azure AD application (client) ID of the Teams app. |
 | `-Description` | Hardcoded | Human-readable label stored with the policy. |
 
 ---
@@ -146,7 +146,7 @@ $policy | Select-Object Identity, Description, AppIds | ConvertTo-Json -Depth 5 
 ```powershell
 Set-CsApplicationAccessPolicy `
     -Identity "<policyName>" `
-    -AppIds "<VITE_APP_ID>" `
+    -AppIds "<appId>" `
     -Description "MS teams access policy for Teams Meeting Ingest"
 ```
 
@@ -157,7 +157,7 @@ Set-CsApplicationAccessPolicy `
 | Parameter | Source | Description |
 |---|---|---|
 | `-Identity` | Policy name | Identifies the existing policy to modify. |
-| `-AppIds` | `VITE_APP_ID` env var | App ID to add to the policy's allowed list. |
+| `-AppIds` | UI-entered `appId` (validated GUID) | App ID to add to the policy's allowed list. |
 
 ---
 
@@ -194,7 +194,7 @@ The script loops over each user UPN and performs smart assignment logic:
 ```powershell
 # (session bootstrap prepended)
 $TargetPolicyName = "<policyName>"
-$TargetAppId      = "<VITE_APP_ID>"
+$TargetAppId      = "<appId>"
 $targetUsers      = @('<upn1>', '<upn2>', ...)
 $results          = @()
 
@@ -243,7 +243,7 @@ $results | ConvertTo-Json -Depth 5 -Compress
 |---|---|---|
 | `$targetUsers` | `users[]` argument (array of UPNs) | User principal names of the target users. Single-quotes escaped. |
 | `$TargetPolicyName` | `policyName` argument | Policy to grant to each user. |
-| `$TargetAppId` | `VITE_APP_ID` env var | App ID to verify/add to any patched policies. |
+| `$TargetAppId` | UI-entered `appId` (validated GUID) | App ID to verify/add to any patched policies. |
 
 ---
 

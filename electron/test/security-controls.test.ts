@@ -22,6 +22,7 @@ import { DEV_CSP, PROD_CSP, SECURE_WEB_PREFERENCES } from '../util/security-cons
 import { isLocalUrl } from '../util/url';
 import { buildSecureWebPreferences, resolveNewWindowAction } from '../util/window-security';
 import {
+  assertAppId,
   EMAIL_BATCH_LIMIT,
   isValidEmail,
   isValidGuid,
@@ -263,11 +264,11 @@ describe('isValidPolicyName — grant-policy IPC channel', () => {
 
 describe('isValidGuid — group-id validation in grant-policy IPC channel', () => {
   it('accepts a well-formed Azure AD object id', () => {
-    expect(isValidGuid('8628b04c-a0f9-458c-b88c-ebc68652cf57')).toBe(true);
+    expect(isValidGuid('1111b11c-a1f1-111c-b11c-ebc11111cf11')).toBe(true);
   });
 
   it('rejects a GUID with extra characters', () => {
-    expect(isValidGuid('8628b04c-a0f9-458c-b88c-ebc68652cf57x')).toBe(false);
+    expect(isValidGuid('1111b11c-a1f1-111c-b11c-ebc11111cf11x')).toBe(false);
   });
 
   it('rejects an empty string', () => {
@@ -281,6 +282,29 @@ describe('isValidGuid — group-id validation in grant-policy IPC channel', () =
   it('rejects non-string values', () => {
     expect(isValidGuid(null)).toBe(false);
     expect(isValidGuid(undefined)).toBe(false);
+  });
+});
+
+describe('assertAppId — app-id validation in grant-policy IPC channel', () => {
+  it('returns the trimmed app id when it is a well-formed GUID', () => {
+    expect(assertAppId(' 1111b11c-a1f1-111c-b11c-ebc11111cf11 ')).toBe('1111b11c-a1f1-111c-b11c-ebc11111cf11');
+  });
+
+  it('throws for a GUID with extra characters', () => {
+    expect(() => assertAppId('1111b11c-a1f1-111c-b11c-ebc11111cf11x')).toThrow();
+  });
+
+  it('throws for an empty string', () => {
+    expect(() => assertAppId('')).toThrow();
+  });
+
+  it('throws for shell-injection characters', () => {
+    expect(() => assertAppId('1111b11c-a1f1-111c-b11c-ebc11111cf11; rm -rf /')).toThrow();
+  });
+
+  it('throws for non-string values', () => {
+    expect(() => assertAppId(null)).toThrow();
+    expect(() => assertAppId(undefined)).toThrow();
   });
 });
 

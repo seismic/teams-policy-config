@@ -2,6 +2,7 @@
 
 interface GrantPolicyPayload {
 	policyName: string;
+	appId: string;
 	type: 'user' | 'group';
 	users?: string[];
 	groups?: string[];
@@ -31,6 +32,8 @@ interface Window {
 		searchGroups: (searchText: string, page?: number) => Promise<ElectronApiResult>;
 		getSavedPolicyName?: () => Promise<ElectronApiResult>;
 		setSavedPolicyName?: (policyName: string) => Promise<ElectronApiResult>;
+		getSavedAppId?: () => Promise<ElectronApiResult>;
+		setSavedAppId?: (appId: string) => Promise<ElectronApiResult>;
 		installPowerShell?: () => Promise<any>;
 		installAzureCli?: () => Promise<any>;
 		installHomebrew?: () => Promise<any>;
