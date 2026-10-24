@@ -6,6 +6,8 @@ import FolderOpenIcon from '@mui/icons-material/FolderOpen';
 import { AzureLoginStep, CompleteStep, StartSetupStep, GrantPolicyStep, ReviewStep } from './Steps';
 import { POLICY_TARGET_TYPE } from './policyTypes';
 
+const APP_ID_RE = /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/;
+
 enum WizardStep {
   SetupEnvironment = 0,
   AzureLogin = 1,
@@ -87,11 +89,13 @@ export default function App() {
     const step1Valid = isEnvironmentSetupComplete;
     const step2Valid = isAzureLoginComplete;
     const hasPolicyName = typeof grantPolicyValues?.policyName === 'string' && grantPolicyValues.policyName.trim().length > 0;
+    const hasValidAppId = typeof grantPolicyValues?.appId === 'string' && APP_ID_RE.test(grantPolicyValues.appId.trim());
     const selectedType = grantPolicyValues?.type;
     const hasUserSelection = Array.isArray(grantPolicyValues?.users) && grantPolicyValues.users.length > 0;
     const hasGroupSelection = Array.isArray(grantPolicyValues?.groups) && grantPolicyValues.groups.length > 0;
     const isGrantPolicyReady =
       hasPolicyName &&
+      hasValidAppId &&
       (
         selectedType === POLICY_TARGET_TYPE.GLOBAL ||
         (selectedType === POLICY_TARGET_TYPE.USER && hasUserSelection) ||
@@ -470,6 +474,7 @@ export default function App() {
     console.log('Granting policy with values:', values);
     const data = {
       policyName: values.policyName,
+      appId: values.appId,
       type: values.type,
       users: values.users ? values.users.map((u: any) => u.value) : [],
       groups: values.groups ? values.groups.map((g: any) => g.value) : [],
@@ -600,6 +605,7 @@ export default function App() {
           {currentStep === WizardStep.Review && (
             <ReviewStep
               policyName={grantPolicyValues.policyName}
+              appId={grantPolicyValues.appId}
               type={grantPolicyValues.type}
               users={grantPolicyValues.users ?? []}
               groups={grantPolicyValues.groups ?? []}

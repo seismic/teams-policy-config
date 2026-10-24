@@ -24,20 +24,19 @@ npm start
 
 1. Create a `.env` file in the project root and add the following variables:
    ```env
-   VITE_APP_ID=<your-azure-app-id>
    VITE_DEFAULT_POLICY_NAME=Teams-Meeting-Policy
    VITE_ORG_NAME=
    VITE_TECHNICAL_DOCUMENTATION_LINK=https://docs.microsoft.com/en-us/azure/azure-cli-install
 
    ```
-   `VITE_APP_ID` is **mandatory** — the app will not work without it.
 
    | Variable | Description | Default |
    |---|---|---|
-   | `VITE_APP_ID` | Azure App ID **(mandatory)** | _(none)_ |
    | `VITE_DEFAULT_POLICY_NAME` | Teams meeting policy name | `Teams-Meeting-Policy` |
    | `VITE_ORG_NAME` | Your organisation name | _(empty)_ |
    | `VITE_TECHNICAL_DOCUMENTATION_LINK` | Link shown in the UI | `https://docs.microsoft.com/en-us/azure/azure-cli-install` |
+
+   The Azure AD **App ID** (the Teams app to authorize) is no longer configured via `.env`. It is entered directly in the **Grant Policy** step of the wizard and is required (must be a valid GUID) before you can proceed.
 
 ## Build
 

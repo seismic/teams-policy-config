@@ -14,17 +14,17 @@ export type SetupResult = {
 /**
  * Retrieves all CS Application Access Policies.
  */
-export async function grantAccessPolicy(log: ProgressLogger, policyName: string, type: GrantType, users: any[], groups: any[]): Promise<any> {
+export async function grantAccessPolicy(log: ProgressLogger, policyName: string, appId: string, type: GrantType, users: any[], groups: any[]): Promise<any> {
 	log('Granting policy started...');
 
 	// Setup the policy first to ensure it exists before attempting to grant it, and to avoid potential issues with granting a non-existent policy.
-	await setupPolicy(log, policyName);
+	await setupPolicy(log, policyName, appId);
 
 	// For user policy, grant to first user in the list (for testing/demo purposes)
 	let result;
 	switch (type) {
 		case GrantType.User:
-			result = await grantPolicyToUser(log, policyName, users);
+			result = await grantPolicyToUser(log, policyName, appId, users);
 			break;
 		case GrantType.Group:
 			result = await grantPolicyToGroup(log, policyName, groups);

@@ -1,7 +1,7 @@
 /// <reference types="node" />
 import './env';
 import { PowerShellCommandResult, ProgressLogger, runPowerShell } from './util/os-util';
-import { assertGroupId, assertPolicyName, psSingleQuote } from './util/validate';
+import { assertAppId, assertGroupId, assertPolicyName, psSingleQuote } from './util/validate';
 
 type AccessPolicy = {
     Identity?: string;
@@ -38,17 +38,6 @@ export interface UserAndGroupListResult {
 }
 
 const AZ_LIST_LIMIT = 10;
-
-function getTeamsAppId(log?: ProgressLogger): string {
-    const appId = process.env.VITE_APP_ID?.trim();
-    if (!appId) {
-        const message = 'VITE_APP_ID is not configured. Set VITE_APP_ID in the .env file.';
-        log?.(message);
-        throw new Error(message);
-    }
-
-    return appId;
-}
 
 function normalizeUsers(users: User[] | User | null): User[] {
     if (!users) {
@@ -177,10 +166,10 @@ async function isPolicyExist(policyName: string, log: ProgressLogger): Promise<b
     return false;
 }
 
-export async function setupPolicy(log: ProgressLogger, policyName: string): Promise<any> {
+export async function setupPolicy(log: ProgressLogger, policyName: string, appId: string): Promise<any> {
     const safePolicyName = assertPolicyName(policyName);
+    const teamsAppId = assertAppId(appId);
     // Check if the policy already exists to avoid redundant setup attempts.
-    const teamsAppId = getTeamsAppId(log);
     const quotedPolicyName = psSingleQuote(safePolicyName);
     const quotedAppId = psSingleQuote(teamsAppId);
     const alreadyExists = await isPolicyExist(safePolicyName, log);
@@ -219,10 +208,10 @@ export async function setupPolicy(log: ProgressLogger, policyName: string): Prom
     return parsed || null;
 }
 
-export async function grantPolicy(log: ProgressLogger, policyName: string, groupId: string): Promise<void> {
+export async function grantPolicy(log: ProgressLogger, policyName: string, groupId: string, appId: string): Promise<void> {
     const safePolicyName = assertPolicyName(policyName);
     const safeGroupId = assertGroupId(groupId);
-    const teamsAppId = getTeamsAppId(log);
+    const teamsAppId = assertAppId(appId);
 
     // Check if the policy already exists to avoid redundant setup attempts.
     const alreadyExists = await isPolicyExist(safePolicyName, log);
@@ -545,7 +534,7 @@ export async function getAllUserAndGroupList(log: ProgressLogger, searchText?: s
     }
 }
 
-export async function grantPolicyToUser(log: ProgressLogger, policyName: string, users: string[]): Promise<any> {
+export async function grantPolicyToUser(log: ProgressLogger, policyName: string, appId: string, users: string[]): Promise<any> {
     if (users.length === 0) {
         log('No users available to grant the policy to.');
         return {
@@ -559,7 +548,7 @@ export async function grantPolicyToUser(log: ProgressLogger, policyName: string,
 
     const safePolicyName = assertPolicyName(policyName);
     log(`Start granting policy "${safePolicyName}" to user(s): ${users.join(', ')}...`);
-    const teamsAppId = getTeamsAppId(log);
+    const teamsAppId = assertAppId(appId);
     const targetUsers = users.map((user) => `'${user.replace(/'/g, "''")}'`).join(', ');
     const script = withTeamsLoginCheck([
         `$TargetPolicyName = ${psSingleQuote(safePolicyName)}`,

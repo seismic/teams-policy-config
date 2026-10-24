@@ -17,7 +17,7 @@
 // spaces, dots, hyphens and underscores. Keep this strict; widen deliberately.
 const POLICY_NAME_RE = /^[A-Za-z0-9 ._-]{1,64}$/;
 
-// Azure AD object id (GUID), e.g. 8628b04c-a0f9-458c-b88c-ebc68652cf57
+// Azure AD object id (GUID), e.g. 1111b11c-a1f1-111c-b11c-ebc11111cf11
 const GUID_RE = /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/;
 
 // Generous upper bound on free-text search queries; rejects obviously oversized payloads.
@@ -80,6 +80,18 @@ export function assertGroupId(value: unknown): string {
     const trimmed = typeof value === 'string' ? value.trim() : '';
     if (!GUID_RE.test(trimmed)) {
         throw new Error(`Invalid group id "${trimmed}". Expected an Azure AD object id (GUID).`);
+    }
+    return trimmed;
+}
+
+/**
+ * Returns the trimmed app id if it is a valid GUID, otherwise throws.
+ * Use at the point a script is built so the settings.json reload path is covered too.
+ */
+export function assertAppId(value: unknown): string {
+    const trimmed = typeof value === 'string' ? value.trim() : '';
+    if (!GUID_RE.test(trimmed)) {
+        throw new Error('Invalid app id. Expected an Azure AD application (client) ID (GUID).');
     }
     return trimmed;
 }

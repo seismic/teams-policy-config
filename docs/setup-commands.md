@@ -70,7 +70,7 @@ Used in `getPolicyByName()`.
 ### Create policy
 
 ```powershell
-$policy = New-CsApplicationAccessPolicy -Identity "<policyName>" -AppIds "<VITE_APP_ID>" -Description "MS teams access policy for Teams Meeting Ingest"
+$policy = New-CsApplicationAccessPolicy -Identity "<policyName>" -AppIds "<appId>" -Description "MS teams access policy for Teams Meeting Ingest"
 $policy | Select-Object Identity, Description, AppIds | ConvertTo-Json -Depth 5 -Compress
 ```
 

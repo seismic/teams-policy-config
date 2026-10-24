@@ -12,7 +12,7 @@ Doing this manually requires the admin to open PowerShell and type ~10 different
 
 ### Example
 
-Imagine a customer company "Acme Corp" with 500 employees using Teams for sales calls. Acme's IT admin downloads this app, clicks through 4 steps, and at the end, the ingest app (whose ID is provided via the `VITE_APP_ID` environment variable — see [electron/env.ts](../electron/env.ts)) is authorized to ingest meeting recordings for Acme's "Sales Team" group. The admin never types a single command.
+Imagine a customer company "Acme Corp" with 500 employees using Teams for sales calls. Acme's IT admin downloads this app, clicks through 4 steps — entering the ingest app's Azure AD App ID in the Grant Policy step — and at the end, the ingest app is authorized to ingest meeting recordings for Acme's "Sales Team" group. The admin never types a single command.
 
 ---
 
@@ -265,7 +265,7 @@ New-CsApplicationAccessPolicy -Identity "<policyName>" -AppIds "<teamsAppId>" -D
 ```
 
 - `-Identity`: The policy name the admin entered.
-- `-AppIds`: Resolved from the `VITE_APP_ID` environment variable via `getTeamsAppId()` in [electron/commands.ts](../electron/commands.ts) — loaded at process start by [electron/env.ts](../electron/env.ts) from `.env` (dev), the build output's `.env` sidecar, or the packaged app's `resources/` / `process.execPath` directory. If `VITE_APP_ID` is unset, `getTeamsAppId()` throws and the operation fails fast.
+- `-AppIds`: The App ID entered by the admin in the Grant Policy step of the UI, validated as a GUID both at the IPC boundary (`electron/main.ts`) and again via `assertAppId()` in [electron/util/validate.ts](../electron/util/validate.ts) before it reaches this script.
 - `-Description`: Hardcoded human-readable description.
 
 This tells Microsoft Teams: *"There is now a policy authorizing this specific app to access meeting data."*
@@ -356,7 +356,7 @@ Code: main.ts → commands.ts (search) → teams-setup.ts → commands.ts (grant
   ┌─ PowerShell command ────────────────────────────────────────────────┐
   │ Get-CsApplicationAccessPolicy -Identity "<name>"                    │
   │ New-CsApplicationAccessPolicy -Identity "<name>"                    │
-  │   -AppIds "$env:VITE_APP_ID" -Description "..."                     │
+  │   -AppIds "<appId>" -Description "..."                              │
   └─────────────────────────────────────────────────────────────────────┘
 
   Part B — Assign policy (one of three)
@@ -503,7 +503,7 @@ The renderer-facing names (`setupEnvironment`, `searchUsers`, `openLogsFolder`, 
 | [electron/main.ts](../electron/main.ts) | All IPC handlers — routes UI actions to backend functions; owns session logger and settings store |
 | [electron/preload.ts](../electron/preload.ts) | Exposes `window.electronAPI` to the renderer via `contextBridge` |
 | [electron/window.ts](../electron/window.ts) | Electron BrowserWindow creation |
-| [electron/env.ts](../electron/env.ts) | Loads `.env` (incl. `VITE_APP_ID`) into `process.env` — checks dev, build-output, packaged, and execPath locations |
+| [electron/env.ts](../electron/env.ts) | Loads `.env` into `process.env` — checks dev, build-output, packaged, and execPath locations |
 | [electron/teams-setup.ts](../electron/teams-setup.ts) | Orchestrator — `runPreLoginPowerShellTasks()` and `grantAccessPolicy()` |
 | [electron/azure.ts](../electron/azure.ts) | Azure device-code login via Azure CLI (`runAzLogin()`) |
 | [electron/commands.ts](../electron/commands.ts) | PowerShell + Azure CLI commands — policy CRUD via MicrosoftTeams module, user/group search via `az ad user/group list` |

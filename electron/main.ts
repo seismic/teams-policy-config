@@ -7,6 +7,8 @@ import { createEnterpriseLogger } from './util/logger/enterprise-logger';
 import { installAzureCli, installHomebrew, installPowerShell } from './install-cli';
 import { searchGroups, searchUsers, searchUsersByEmails } from './commands';
 import { EMAIL_BATCH_LIMIT, isValidEmail, isValidGuid, isValidPolicyName, isValidSearchText } from './util/validate';
+
+const APP_ID_VALIDATION_MESSAGE = 'Invalid app id. Expected an Azure AD application (client) ID (GUID).';
 import { GrantType, GRANT_TYPE_VALUES } from './util/grant-types';
 import {
   isAzCliInstalled,
@@ -83,6 +85,7 @@ function createAppLogger() {
 
 type AppSettings = {
   grantPolicyName?: string;
+  grantAppId?: string;
 };
 
 function getSettingsFilePath(): string {
@@ -156,6 +159,52 @@ ipcMain.handle('settings:set-policy-name', async (_event, payload: { policyName?
     success: true,
     data: {
       policyName: settings.grantPolicyName
+    }
+  };
+});
+
+ipcMain.handle('settings:get-app-id', async () => {
+  const elog = createAppLogger();
+  elog.log('Reading app id setting...');
+  elog.addSummary('Get app id setting');
+  const settings = readAppSettings();
+  // Re-validate on read: never propagate an app id from settings.json that
+  // would not pass input validation (defends the settings reload path, 1352156).
+  const appId = isValidGuid(settings.grantAppId) ? settings.grantAppId!.trim() : '';
+  elog.log(`App id retrieved: "${appId}"`);
+  elog.addSummary(`App id retrieved.`);
+  return {
+    success: true,
+    data: { appId }
+  };
+});
+
+ipcMain.handle('settings:set-app-id', async (_event, payload: { appId?: string } | string) => {
+  const elog = createAppLogger();
+  elog.log('Setting app id...');
+  elog.addSummary('Set app id operation started');
+
+  const value = typeof payload === 'string' ? payload : payload?.appId;
+  if (!isValidGuid(value)) {
+    elog.error('Invalid app id provided.');
+    elog.addSummary('Failed: invalid app id.');
+    return {
+      success: false,
+      error: 'invalid-app-id',
+      message: APP_ID_VALIDATION_MESSAGE
+    };
+  }
+
+  const settings = readAppSettings();
+  settings.grantAppId = value.trim();
+  writeAppSettings(settings);
+  elog.log(`App id saved.`);
+  elog.addSummary(`App id set.`);
+
+  return {
+    success: true,
+    data: {
+      appId: settings.grantAppId
     }
   };
 });
@@ -289,7 +338,7 @@ ipcMain.handle('grant-policy', async (_event, data) => {
       return { success: false, error: 'invalid-payload', message: 'Malformed request payload.' };
     }
 
-    const { policyName, type, users, groups } = data;
+    const { policyName, appId, type, users, groups } = data;
 
     // Allowlist the type field — never allow arbitrary strings to reach the grant logic
     if (!GRANT_TYPE_VALUES.includes(type as GrantType)) {
@@ -308,6 +357,18 @@ ipcMain.handle('grant-policy', async (_event, data) => {
         success: false,
         error: 'invalid-policy-name',
         message: 'Invalid policy name. Use only letters, numbers, space, dot, hyphen or underscore (max 64).'
+      };
+    }
+
+    if (!isValidGuid(appId)) {
+      log('Invalid app id provided.');
+      elog.error('Invalid app id provided.');
+      elog.addSummary('Invalid app id provided.');
+      elog.finish(false);
+      return {
+        success: false,
+        error: 'invalid-app-id',
+        message: APP_ID_VALIDATION_MESSAGE
       };
     }
 
@@ -347,7 +408,7 @@ ipcMain.handle('grant-policy', async (_event, data) => {
       };
     }
 
-    const grantOperationResult = await grantAccessPolicy((msg) => { log(msg); elog.log(msg); }, policyName, type, users, groups);
+    const grantOperationResult = await grantAccessPolicy((msg) => { log(msg); elog.log(msg); }, policyName, appId, type, users, groups);
     log('Granting policy completed successfully.');
     elog.addSummary('Granting policy completed successfully.');
     elog.finish(true);

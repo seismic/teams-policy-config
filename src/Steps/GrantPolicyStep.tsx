@@ -79,6 +79,8 @@ const POLICY_TYPE_OPTIONS = [
 ];
 
 const POLICY_NOTE_MESSAGE = 'This policy will apply only to users or groups that do not already have an existing policy.';
+const APP_ID_NOTE_MESSAGE = 'The Azure AD application (client) ID of the Teams app that will be authorized by this policy.';
+const APP_ID_RE = /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/;
 
 const ORG_NAME = import.meta.env.VITE_ORG_NAME || null;
 const DEFAULT_POLICY_NAME = import.meta.env.VITE_DEFAULT_POLICY_NAME?.trim() || 'Teams-Meeting-Policy';
@@ -117,6 +119,10 @@ export default function GrantPolicyStep({ onValuesChange, isSubmitting, initialT
     const [selectedType, setSelectedType] = useState<PolicyTargetType>(initialType ?? POLICY_TARGET_TYPE.GROUP);
     const [policyName, setPolicyName] = useState(DEFAULT_POLICY_NAME);
     const hasLoadedSavedPolicyName = useRef(false);
+    const [appId, setAppId] = useState('');
+    const [appIdTouched, setAppIdTouched] = useState(false);
+    const hasLoadedSavedAppId = useRef(false);
+    const isAppIdValid = APP_ID_RE.test(appId.trim());
     const [selectedUsers, setSelectedUsers] = useState<Option[]>(initialUsers ?? []);
     const [selectedGroups, setSelectedGroups] = useState<Option[]>(initialGroups ?? []);
     const [uploadedCsvFileName, setUploadedCsvFileName] = useState('');
@@ -195,14 +201,55 @@ export default function GrantPolicyStep({ onValuesChange, isSubmitting, initialT
     }, [policyName]);
 
     useEffect(() => {
+        let isMounted = true;
+
+        window.electronAPI.getSavedAppId?.()
+            .then((result) => {
+                const savedAppId = result?.data?.appId;
+                if (!isMounted || typeof savedAppId !== 'string' || savedAppId.trim().length === 0) {
+                    return;
+                }
+
+                setAppId(savedAppId.trim());
+            })
+            .catch(() => {
+                // Ignore persistence read failures and keep default app id value.
+            })
+            .finally(() => {
+                if (isMounted) {
+                    hasLoadedSavedAppId.current = true;
+                }
+            });
+
+        return () => {
+            isMounted = false;
+        };
+    }, []);
+
+    useEffect(() => {
+        if (!hasLoadedSavedAppId.current || !isAppIdValid) {
+            return;
+        }
+
+        const timeoutId = window.setTimeout(() => {
+            window.electronAPI.setSavedAppId?.(appId.trim()).catch(() => {
+                // Ignore persistence write failures and keep in-memory value.
+            });
+        }, 300);
+
+        return () => window.clearTimeout(timeoutId);
+    }, [appId, isAppIdValid]);
+
+    useEffect(() => {
         const values = {
             policyName,
+            appId: appId.trim(),
             type: selectedType,
             users: selectedType === POLICY_TARGET_TYPE.USER ? selectedUsers : [],
             groups: selectedType === POLICY_TARGET_TYPE.GROUP ? selectedGroups : [],
         };
         onValuesChange?.(values);
-    }, [policyName, selectedType, selectedUsers, selectedGroups, onValuesChange]);
+    }, [policyName, appId, selectedType, selectedUsers, selectedGroups, onValuesChange]);
 
     useEffect(() => {
         const timeoutId = window.setTimeout(() => {
@@ -440,6 +487,43 @@ export default function GrantPolicyStep({ onValuesChange, isSubmitting, initialT
                         placeholder="Policy Name"
                         sx={{ mt: 1 }}
                         disabled={isSubmitting}
+                    />
+                </FormControl>
+                <FormControl component="fieldset" sx={{ mb: 1 }}>
+                    <FormLabel
+                        component="label"
+                        htmlFor="appIdInput"
+                        required
+                        sx={{
+                            color: 'text.primary',
+                            '&.Mui-focused': { color: 'text.primary' },
+                            '& .MuiFormLabel-asterisk': { color: 'error.main' },
+                        }}
+                    >
+                        App ID{' '}
+                        <Tooltip title={APP_ID_NOTE_MESSAGE} arrow>
+                            <span className="grant-policy-policy-note">
+                                ({APP_ID_NOTE_MESSAGE})
+                            </span>
+                        </Tooltip>
+                    </FormLabel>
+                    <TextField
+                        id="appIdInput"
+                        name="appId"
+                        value={appId}
+                        onChange={(e) => setAppId(e.target.value)}
+                        onBlur={() => setAppIdTouched(true)}
+                        required
+                        size="small"
+                        placeholder="00000000-0000-0000-0000-000000000000"
+                        sx={{ mt: 1 }}
+                        disabled={isSubmitting}
+                        error={appIdTouched && appId.trim().length > 0 && !isAppIdValid}
+                        helperText={
+                            appIdTouched && appId.trim().length > 0 && !isAppIdValid
+                                ? 'Enter a valid Azure AD application (client) ID (GUID).'
+                                : ' '
+                        }
                     />
                 </FormControl>
                 <FormControl component="fieldset" disabled={isSubmitting} sx={{ mb: 1 }}>

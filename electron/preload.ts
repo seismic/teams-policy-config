@@ -2,6 +2,7 @@ import { contextBridge, ipcRenderer } from 'electron';
 
 interface GrantPolicyPayload {
   policyName: string;
+  appId: string;
   type: 'user' | 'group' | 'global';
   users?: string[];
   groups?: string[];
@@ -16,6 +17,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
   searchGroups: (searchText: string, page: number = 0) => ipcRenderer.invoke('search-groups', { searchText, page }),
   getSavedPolicyName: () => ipcRenderer.invoke('settings:get-policy-name'),
   setSavedPolicyName: (policyName: string) => ipcRenderer.invoke('settings:set-policy-name', { policyName }),
+  getSavedAppId: () => ipcRenderer.invoke('settings:get-app-id'),
+  setSavedAppId: (appId: string) => ipcRenderer.invoke('settings:set-app-id', { appId }),
   installPowerShell: () => ipcRenderer.invoke('system:install-powershell'),
   installAzureCli: () => ipcRenderer.invoke('system:install-azure-cli'),
   installHomebrew: () => ipcRenderer.invoke('system:install-homebrew'),

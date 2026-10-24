@@ -20,12 +20,13 @@ const PAGE_SIZE = 10;
 
 type ReviewStepProps = {
     policyName: string;
+    appId: string;
     type: PolicyTargetType;
     users: Option[];
     groups: Option[];
 };
 
-export default function ReviewStep({ policyName, type, users, groups }: ReviewStepProps) {
+export default function ReviewStep({ policyName, appId, type, users, groups }: ReviewStepProps) {
     const [search, setSearch] = useState('');
     const [page, setPage] = useState(1);
 
@@ -54,7 +55,7 @@ export default function ReviewStep({ policyName, type, users, groups }: ReviewSt
         return (
             <div className="step-content">
                 <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-                    The policy <strong>{policyName}</strong> will be granted to all users in the Azure organization.
+                    The policy <strong>{policyName}</strong> (App ID: <strong>{appId}</strong>) will be granted to all users in the Azure organization.
                 </Typography>
                 <Stack direction="row" spacing={1.5} alignItems="center" sx={{ p: 2, borderRadius: 1, bgcolor: 'action.hover' }}>
                     <PublicIcon color="action" />
@@ -77,7 +78,7 @@ export default function ReviewStep({ policyName, type, users, groups }: ReviewSt
     return (
         <div className="step-content">
             <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-                {subtitle}
+                {subtitle} <strong>{policyName}</strong> (App ID: <strong>{appId}</strong>).
             </Typography>
 
             <TextField
