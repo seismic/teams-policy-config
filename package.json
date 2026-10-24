@@ -1,7 +1,7 @@
 {
   "name": "teams-policy-config",
   "productName": "Teams Policy Config",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "An Electron app to manage Microsoft Teams policies for users.",
   "main": "dist-electron/main.js",
   "scripts": {
