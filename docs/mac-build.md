@@ -22,7 +22,7 @@ The build is produced by [`electron-builder`](https://www.electron.build/) and i
 
 | Tool          | Required Version           | Notes                                              |
 |---------------|----------------------------|----------------------------------------------------|
-| Node.js       | `24.15.0` (pinned by Volta) | See `"volta"` block in [package.json](../package.json). |
+| Node.js       | `24.22.1` (pinned by Volta and `.nvmrc`) | See `"volta"` block in [package.json](../package.json). |
 | npm           | Bundled with Node 24       | `npm -v` should report `10.x` or newer.            |
 | Xcode CLT     | Latest                     | Required by native module rebuilds + code signing. |
 | PowerShell    | `pwsh` 7+ (optional)       | Only needed if you plan to run the built app locally. |
@@ -42,7 +42,7 @@ curl https://get.volta.sh | bash
 Reopen your terminal and verify:
 
 ```bash
-node -v   # v24.15.0
+node -v   # v24.22.1
 npm -v
 ```
 

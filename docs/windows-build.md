@@ -24,7 +24,7 @@ The build is produced by [`electron-builder`](https://www.electron.build/) and i
 
 | Tool                            | Required Version           | Notes                                                                          |
 |---------------------------------|----------------------------|--------------------------------------------------------------------------------|
-| Node.js                         | `24.15.0` (pinned by Volta) | See `"volta"` block in [package.json](../package.json).                        |
+| Node.js                         | `24.22.1` (pinned by Volta and `.nvmrc`) | See `"volta"` block in [package.json](../package.json).                        |
 | npm                             | Bundled with Node 24       | `npm -v` should report `10.x` or newer.                                        |
 | Git for Windows                 | Latest                     | Includes `bash` which is useful for some npm scripts.                          |
 | Visual Studio Build Tools 2022  | Latest                     | Required for compiling native modules. Install the *Desktop development with C++* workload. |
@@ -41,7 +41,7 @@ winget install Volta.Volta
 Restart your terminal and verify:
 
 ```powershell
-node -v   # v24.15.0
+node -v   # v24.22.1
 npm -v
 ```
 
