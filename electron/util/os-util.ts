@@ -4,6 +4,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import {
     getLookupTool,
+    getTrustedShell,
     getTrustedCwd,
     getToolCandidates,
     resolveTrustedTool,
@@ -151,7 +152,8 @@ export async function runPowerShell(
     const childEnv: NodeJS.ProcessEnv = {
         ...withCommonCliPath(),
         ...(options?.env ?? {}),
-        ...(azPath ? { TPC_AZ_CLI: azPath } : {})
+        // Always set (empty when unresolved) so an inherited or caller-supplied value can never reach the script.
+        TPC_AZ_CLI: azPath ?? ''
     };
 
     let lastError: unknown;
@@ -270,7 +272,7 @@ export async function isAzCliInstalled(log?: ProgressLogger): Promise<boolean> {
     // vulnerable to a working-directory binary hijack (scan finding 1352217).
     const azPath = await resolveAzCliPath();
     if (!azPath) {
-        log?.('Azure CLI was not found in the expected locations or on PATH.');
+        log?.(notFoundMessage('az'));
         return false;
     }
 
@@ -283,7 +285,8 @@ export async function isAzCliInstalled(log?: ProgressLogger): Promise<boolean> {
         await execFileAsync(probeExe, ['--version'], {
             cwd: getSafeCwd(),
             env: withCommonCliPath(),
-            shell: isCmdScript,
+            // Explicit cmd.exe path: never trust the ComSpec environment variable.
+            shell: isCmdScript ? getTrustedShell() : false,
         });
         log?.(`Detected Azure CLI executable: ${azPath}`);
         return true;

@@ -3,6 +3,7 @@
  * and MTGINGEST-5917 (binary hijacking of PowerShell / winget / choco).
  */
 import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -16,6 +17,8 @@ vi.mock('node:child_process', async (orig) => {
 
 import {
   getToolCandidates,
+  getTrustedShell,
+  getLookupTool,
   getTrustedCwd,
   isTrustedPath,
   notFoundMessage,
@@ -36,6 +39,7 @@ const winCtx = (existing: string[]): ResolveContext => ({
   platform: 'win32',
   env: WIN_ENV,
   exists: (p) => existing.includes(p),
+  homedir: 'C:\\Users\\u',
 });
 
 const LAUNCH_DIR = 'C:\\Users\\u\\Downloads\\evil';
@@ -155,38 +159,63 @@ describe('resolveAzCliPath / isAzCliInstalled with planted binary', () => {
   });
 });
 
-describe('environment-derived roots (review fix)', () => {
-  it('ignores UNC ProgramFiles and falls back to the fixed default', () => {
-    const ctx: ResolveContext = { platform: 'win32', env: { ...WIN_ENV, ProgramFiles: '\\\\evil\\s' }, exists: () => true };
+const HOME = 'C:\\Users\\u';
+const mk = (env: NodeJS.ProcessEnv, homedir = HOME): ResolveContext => ({ platform: 'win32', env, exists: () => true, homedir });
+
+describe('environment-derived roots are ignored (re-review N1/N2)', () => {
+  it('ignores UNC ProgramFiles', () => {
+    const ctx = mk({ ...WIN_ENV, ProgramFiles: '\\\\evil\\s' });
     expect(isTrustedPath('\\\\evil\\s\\x.exe', ctx)).toBe(false);
     expect(isTrustedPath('C:\\Program Files\\x.exe', ctx)).toBe(true);
   });
-  it('ignores env pointing at a different directory (ProgramFiles=C:\\Users\\u\\evil)', () => {
-    const ctx: ResolveContext = { platform: 'win32', env: { ...WIN_ENV, ProgramFiles: 'C:\\Users\\u\\evil' }, exists: () => true };
-    expect(isTrustedPath('C:\\Users\\u\\evil\\az.cmd', ctx)).toBe(false);
+  it.each(['Z:\\Program Files', 'D:\\Program Files', 'C:\\Users\\u\\evil'])('ignores ProgramFiles=%s', (pf) => {
+    const ctx = mk({ ...WIN_ENV, ProgramFiles: pf });
+    expect(isTrustedPath(`${pf}\\az.cmd`, ctx)).toBe(false);
   });
-  it('honours the same path on another drive letter', () => {
-    const ctx: ResolveContext = { platform: 'win32', env: { ...WIN_ENV, ProgramFiles: 'D:\\Program Files' }, exists: () => true };
-    expect(isTrustedPath('D:\\Program Files\\x.exe', ctx)).toBe(true);
+  it('SystemRoot=Z:\\Windows does not move the pinned cwd or where.exe', () => {
+    const ctx = mk({ ...WIN_ENV, SystemRoot: 'Z:\\Windows' });
+    expect(getTrustedCwd(ctx)).toBe('C:\\Windows\\System32');
+    expect(getLookupTool(ctx)).toBe('C:\\Windows\\System32\\where.exe');
+    expect(getTrustedShell(ctx)).toBe('C:\\Windows\\System32\\cmd.exe');
+    expect(isTrustedPath('Z:\\Windows\\System32\\where.exe', ctx)).toBe(false);
   });
-  it('rejects a non-standard LOCALAPPDATA', () => {
-    const ctx: ResolveContext = { platform: 'win32', env: { ...WIN_ENV, LOCALAPPDATA: 'C:\\evil' }, exists: () => true };
-    expect(getToolCandidates('winget', ctx)).toEqual([]);
+  it.each([
+    'C:\\Users\\..\\AppData\\Local',
+    'C:\\Users\\.\\AppData\\Local',
+    'C:\\Users\\Public\\AppData\\Local',
+    'D:\\Users\\u\\AppData\\Local',
+    'C:\\evil',
+    '\\\\evil\\s\\AppData\\Local',
+  ])('rejects LOCALAPPDATA=%s', (lad) => {
+    expect(getToolCandidates('winget', mk({ ...WIN_ENV, LOCALAPPDATA: lad }))).toEqual([]);
+    expect(isTrustedPath(`${lad}\\Microsoft\\WindowsApps\\winget.exe`, mk({ ...WIN_ENV, LOCALAPPDATA: lad }))).toBe(false);
+  });
+  it('rejects a LOCALAPPDATA that differs from the profile directory', () => {
+    expect(getToolCandidates('winget', mk({ ...WIN_ENV, LOCALAPPDATA: 'C:\\Users\\other\\AppData\\Local' }))).toEqual([]);
+  });
+  it('rejects a reserved or non-C: profile directory', () => {
+    expect(getToolCandidates('winget', mk(WIN_ENV, 'C:\\Users\\Public'))).toEqual([]);
+    expect(getToolCandidates('winget', mk({ ...WIN_ENV, LOCALAPPDATA: 'Z:\\Users\\u\\AppData\\Local' }, 'Z:\\Users\\u'))).toEqual([]);
+  });
+  it('accepts the genuine profile-derived winget alias', () => {
+    expect(getToolCandidates('winget', mk(WIN_ENV))).toEqual(['C:\\Users\\u\\AppData\\Local\\Microsoft\\WindowsApps\\winget.exe']);
   });
 });
 
-describe('user-writable locations only trusted as exact candidates (review fix)', () => {
+describe('user-writable locations only trusted as exact candidates', () => {
   const ctx = winCtx([]);
   it('accepts exact winget alias / choco candidates but not other files in those folders', () => {
     expect(isTrustedPath('C:\\Users\\u\\AppData\\Local\\Microsoft\\WindowsApps\\winget.exe', ctx)).toBe(true);
     expect(isTrustedPath('C:\\Users\\u\\AppData\\Local\\Microsoft\\WindowsApps\\az.exe', ctx)).toBe(false);
     expect(isTrustedPath('C:\\ProgramData\\chocolatey\\bin\\az.cmd', ctx)).toBe(false);
   });
-  it('posix: /usr/local/bin only for exact candidates', () => {
-    const p: ResolveContext = { platform: 'darwin', env: {}, exists: () => true };
+  it('posix: /usr/local/bin only for exact candidates; linuxbrew az/pwsh accepted', () => {
+    const p: ResolveContext = { platform: 'linux', env: {}, exists: () => true };
     expect(isTrustedPath('/usr/local/bin/az', p)).toBe(true);
     expect(isTrustedPath('/usr/local/bin/evil', p)).toBe(false);
     expect(isTrustedPath('/usr/bin/anything', p)).toBe(true);
+    expect(isTrustedPath('/home/linuxbrew/.linuxbrew/bin/az', p)).toBe(true);
+    expect(isTrustedPath('/home/linuxbrew/.linuxbrew/bin/pwsh', p)).toBe(true);
   });
   it('finds PowerShell 7-preview and reports actionable not-found text', () => {
     const prev = 'C:\\Program Files\\PowerShell\\7-preview\\pwsh.exe';
@@ -201,6 +230,7 @@ describe('winget App Execution Alias detection', () => {
     const alias = 'C:\\Users\\u\\AppData\\Local\\Microsoft\\WindowsApps\\winget.exe';
     vi.spyOn(fs, 'existsSync').mockReturnValue(false);
     vi.spyOn(fs, 'lstatSync').mockImplementation(((p: any) => { if (String(p) === alias) return {} as any; throw new Error('ENOENT'); }) as any);
+    vi.spyOn(os, 'homedir').mockReturnValue(HOME);
     const origPlatform = Object.getOwnPropertyDescriptor(process, 'platform')!;
     Object.defineProperty(process, 'platform', { value: 'win32' });
     const saved = { ...process.env };
@@ -216,19 +246,70 @@ describe('winget App Execution Alias detection', () => {
   });
 });
 
-describe('az resolved path is passed to PowerShell as data', () => {
-  it('commands.ts no longer searches PATH for az', () => {
-    const src = fs.readFileSync(path.resolve(__dirname, '..', 'commands.ts'), 'utf8');
-    expect(src).not.toMatch(/Get-Command\s+'az/);
-    expect(src).toMatch(/\$env:TPC_AZ_CLI/);
+describe('runPowerShell environment (re-review N3)', () => {
+  beforeEach(() => {
+    vi.resetModules();
+    execFileMock.mockReset();
+    execFileMock.mockImplementation(async (file: string) => ({ stdout: file === '/usr/bin/which' ? '' : 'ok', stderr: '' }));
+  });
+  afterEach(() => {
+    vi.restoreAllMocks();
+    delete process.env.TPC_AZ_CLI;
+  });
+
+  const psCall = () => execFileMock.mock.calls.find((c) => c[0] === '/usr/bin/pwsh')!;
+
+  it('sets TPC_AZ_CLI to the validated path and the caller cannot override it', async () => {
+    vi.spyOn(fs, 'existsSync').mockImplementation((p) => ['/usr/bin/pwsh', '/usr/bin/az'].includes(String(p)));
+    process.env.TPC_AZ_CLI = '/tmp/evil-inherited';
+    const os2 = await import('../util/os-util');
+    await os2.runPowerShell('x', undefined, undefined, { env: { TPC_AZ_CLI: '/tmp/evil-caller', OTHER: 'data' } });
+    const env = psCall()[2].env;
+    expect(env.TPC_AZ_CLI).toBe('/usr/bin/az');
+    expect(env.OTHER).toBe('data');
+    expect(psCall()[2].cwd).toBe('/');
+  });
+
+  it('sets TPC_AZ_CLI to empty (never inherited/caller value) when az is not resolved', async () => {
+    vi.spyOn(fs, 'existsSync').mockImplementation((p) => String(p) === '/usr/bin/pwsh');
+    vi.spyOn(fs, 'lstatSync').mockImplementation((() => { throw new Error('ENOENT'); }) as any);
+    process.env.TPC_AZ_CLI = '/tmp/evil-inherited';
+    const os2 = await import('../util/os-util');
+    await os2.runPowerShell('x', undefined, undefined, { env: { TPC_AZ_CLI: '/tmp/evil-caller' } });
+    expect(psCall()[2].env.TPC_AZ_CLI).toBe('');
+  });
+});
+
+describe('az lookup in scripts (behavioural)', () => {
+  it('generated scripts read $env:TPC_AZ_CLI and never search PATH for az', async () => {
+    vi.resetModules();
+    const runPowerShell = vi.fn(async () => ({ executable: 'x', stdout: '[]', stderr: '' }));
+    vi.doMock('../env', () => ({}));
+    vi.doMock('../util/os-util', async (orig) => ({ ...(await orig<any>()), runPowerShell }));
+    const commands = await import('../commands');
+    await commands.searchUsers(() => {}, 'alice').catch(() => undefined);
+    vi.doUnmock('../util/os-util');
+    vi.doUnmock('../env');
+    expect(runPowerShell).toHaveBeenCalled();
+    const script = String((runPowerShell.mock.calls[0] as unknown[])[0]);
+    expect(script).toContain('$env:TPC_AZ_CLI');
+    expect(script).not.toMatch(/Get-Command/);
+    expect(script).toMatch(/throw/);
   });
 });
 
 describe('runCommandWithLiveLogs (powershell.ts)', () => {
-  it('refuses bare-name executables', async () => {
+  it.each(['az', './az.cmd', 'C:\\evil\\az.cmd', '\\\\evil\\s\\az.cmd', '/tmp/az', '/usr/local/bin/evil'])('refuses %s', async (exe) => {
     const { runCommandWithLiveLogs } = await import('../util/powershell');
-    await expect(runCommandWithLiveLogs('az', ['--version'], { cwd: '/' })).rejects.toMatchObject({ code: 'EINVAL' });
-    await expect(runCommandWithLiveLogs('./az.cmd', [], { cwd: '/' })).rejects.toMatchObject({ code: 'EINVAL' });
+    await expect(runCommandWithLiveLogs(exe, ['--version'], { cwd: '/' })).rejects.toMatchObject({ code: 'EINVAL' });
+  });
+  it('Windows: UNC .cmd is refused (isAbsolute would accept it)', () => {
+    expect(path.win32.isAbsolute('\\\\evil\\s\\az.cmd')).toBe(true);
+    expect(isTrustedPath('\\\\evil\\s\\az.cmd', winCtx([]))).toBe(false);
+  });
+  it('Windows shell is the fixed System32 cmd.exe regardless of ComSpec', () => {
+    expect(getTrustedShell(mk({ ...WIN_ENV, ComSpec: 'C:\\evil\\cmd.exe' }))).toBe('C:\\Windows\\System32\\cmd.exe');
+    expect(getTrustedShell({ platform: 'linux', env: {}, exists: () => true })).toBe(false);
   });
 });
 
@@ -238,40 +319,65 @@ describe('source-level guard: no unchecked launches remain', () => {
   const walk = (d: string) => {
     for (const e of fs.readdirSync(d, { withFileTypes: true })) {
       const full = path.join(d, e.name);
-      if (e.isDirectory()) { if (e.name !== 'test') walk(full); }
-      else if (/\.ts$/.test(e.name)) sources.push(full);
+      if (e.isDirectory()) { if (e.name !== 'test' && e.name !== 'node_modules') walk(full); }
+      else if (/\.(ts|tsx|js|cjs|mjs)$/.test(e.name)) sources.push(full);
     }
   };
   walk(root);
   const rel = (f: string) => path.relative(root, f).replace(/\\/g, '/');
-  const read = (f: string) => fs.readFileSync(f, 'utf8');
+  const stripComments = (t: string) => t.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '');
+  const read = (f: string) => stripComments(fs.readFileSync(f, 'utf8'));
+  const launchers = ['install-cli.ts', 'util/os-util.ts', 'util/powershell.ts'];
 
-  it('only the vetted modules import child_process', () => {
-    const users = sources.filter((f) => /from\s+'(node:)?child_process'/.test(read(f))).map(rel).sort();
-    expect(users).toEqual(['install-cli.ts', 'util/os-util.ts', 'util/powershell.ts']);
+  it('only the vetted modules reference child_process (any import form)', () => {
+    const users = sources.filter((f) => /child_process/.test(read(f))).map(rel).sort();
+    expect(users).toEqual(launchers.slice().sort());
   });
 
-  it('no child-process file uses process.cwd() or a non-pinned cwd', () => {
-    for (const f of ['install-cli.ts', 'util/os-util.ts', 'util/powershell.ts', 'azure.ts', 'commands.ts'].map((x) => path.join(root, x))) {
+  it('no electron source uses process.cwd() as a working directory for launches', () => {
+    for (const f of sources) {
       const src = read(f);
+      if (!/child_process|runCommandWithLiveLogs|runPowerShell/.test(src)) continue;
       expect(src, rel(f)).not.toMatch(/process\.cwd\(\)/);
-      for (const m of src.matchAll(/\bcwd:\s*([^,}\r\n]+)/g)) {
+    }
+  });
+
+  it('every cwd (property, shorthand, variable) is pinned', () => {
+    for (const f of sources) {
+      const src = read(f);
+      if (!/child_process|runCommandWithLiveLogs|runPowerShell/.test(src)) continue;
+      for (const m of src.matchAll(/\bcwd:\s*([^,}\r\n;]+)/g)) {
         const v = m[1].trim();
-        expect(['getSafeCwd()', 'cwd', 'string;'], `${rel(f)}: cwd: ${v}`).toContain(v);
+        expect(['getSafeCwd()', 'getTrustedCwd()', 'cwd', 'string'], `${rel(f)}: cwd: ${v}`).toContain(v);
+      }
+      if (/[{,]\s*cwd\s*[,}]/.test(src) || /\bconst\s+cwd\b/.test(src)) {
+        expect(src, `${rel(f)} shorthand cwd must be the pinned dir`).toMatch(/\bconst\s+cwd\s*=\s*getSafeCwd\(\)/);
       }
     }
   });
 
-  it('every launch uses a resolved/absolute executable, never a bare literal', () => {
-    for (const f of ['install-cli.ts', 'util/os-util.ts', 'util/powershell.ts', 'azure.ts'].map((x) => path.join(root, x))) {
+  it('shell is never true; only false or the fixed trusted cmd.exe', () => {
+    for (const f of sources) {
       const src = read(f);
-      for (const m of src.matchAll(/\b(execFileAsync|execFile|spawn|exec|execSync|spawnSync)\(\s*([^,\s)]+)/g)) {
-        const arg = m[2];
-        if (/^['"`]/.test(arg)) {
-          expect(arg, `${rel(f)}: ${m[1]}(${arg}`).toMatch(/^['"`]\//); // absolute literal only
-        }
+      if (!/child_process/.test(src)) continue;
+      for (const m of src.matchAll(/\bshell:\s*([^\r\n]+)/g)) {
+        const v = m[1].trim().replace(/,$/, '');
+        expect(v, `${rel(f)}: shell: ${v}`).toMatch(/^(false|(isCmdScript|useWindowsShell) \? getTrustedShell\(\) : false)$/);
       }
-      expect(src, rel(f)).not.toMatch(/\bexecSync\(|\bspawnSync\(/);
+    }
+  });
+
+  it('every launch first argument is an absolute literal or a resolver-produced identifier', () => {
+    const allowedIdentifiers = new Set(['executable', 'probeExe', 'spawnExecutable', 'getLookupTool(']);
+    for (const f of launchers.map((x) => path.join(root, x))) {
+      const src = read(f);
+      for (const m of src.matchAll(/\b(execFileAsync|execFile|spawn|exec|execSync|spawnSync)\(\s*([^,)]+)/g)) {
+        const arg = m[2].trim();
+        if (m[1] === 'execFile' && arg === 'execFile') continue;
+        if (/^['"`]/.test(arg)) expect(arg, `${rel(f)}: ${m[1]}(${arg}`).toMatch(/^['"`]\//);
+        else expect(allowedIdentifiers.has(arg), `${rel(f)}: ${m[1]}(${arg}) is not a resolver-produced value`).toBe(true);
+      }
+      expect(src, rel(f)).not.toMatch(/\bexecSync\(|\bspawnSync\(|\bexec\(/);
     }
   });
 

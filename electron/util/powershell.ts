@@ -1,5 +1,5 @@
 import { spawn } from 'node:child_process';
-import path from 'node:path';
+import { getTrustedCwd, getTrustedShell, isTrustedPath } from './trusted-exec';
 import {
   ProgressLogger,
 } from './os-util';
@@ -23,11 +23,13 @@ export async function runCommandWithLiveLogs(
     timeoutMs?: number;
   }
 ): Promise<{ stdout: string; stderr: string }> {
-  const { cwd, env, log, timeoutMs = 0 } = options;
+  // The working directory is always the pinned trusted one; options.cwd is accepted for
+  // compatibility but never used, so no caller can reintroduce an attacker-writable cwd.
+  const { env, log, timeoutMs = 0 } = options;
 
-  if (!path.isAbsolute(executable)) {
-    // Never launch by bare name: that would allow a cwd/PATH search (MTGINGEST-5917).
-    const err = new Error(`Refusing to run non-absolute executable: ${executable}`) as NodeJS.ErrnoException;
+  if (!isTrustedPath(executable)) {
+    // Never launch by bare name, UNC path or an untrusted location (MTGINGEST-5916/5917).
+    const err = new Error(`Refusing to run executable outside trusted locations: ${executable}`) as NodeJS.ErrnoException;
     err.code = 'EINVAL';
     return Promise.reject(err);
   }
@@ -42,10 +44,11 @@ export async function runCommandWithLiveLogs(
     const spawnExecutable = useWindowsShell ? `"${executable}"` : executable;
 
     const child = spawn(spawnExecutable, args, {
-      cwd,
+      cwd: getTrustedCwd(),
       env,
       stdio: ['ignore', 'pipe', 'pipe'],
-      shell: useWindowsShell
+      // Explicit cmd.exe path: never trust the ComSpec environment variable.
+      shell: useWindowsShell ? getTrustedShell() : false
     });
 
     let stdout = '';

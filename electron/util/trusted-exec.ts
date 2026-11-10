@@ -1,5 +1,6 @@
 import fs from 'node:fs';
 import nodePath from 'node:path';
+import os from 'node:os';
 
 /**
  * Safe executable resolution for every external tool the app launches
@@ -20,6 +21,8 @@ export type ResolveContext = {
     platform: NodeJS.Platform;
     env: NodeJS.ProcessEnv;
     exists: (p: string) => boolean;
+    /** User profile directory; defaults to os.homedir(). */
+    homedir?: string;
 };
 
 /**
@@ -46,26 +49,35 @@ function pathApi(platform: NodeJS.Platform) {
 }
 
 /**
- * Environment variables are attacker-influenceable (e.g. ProgramFiles=\\evil\\share),
- * so they are only honoured when they name the SAME well-known path on a local
- * drive letter (handles a non-C: system drive). UNC and any other value fall back
- * to the fixed default.
+ * Windows roots are FIXED. Environment variables (SystemRoot, ProgramFiles, ...) are
+ * attacker-influenceable and cannot prove a drive is a local, OS-controlled one
+ * (mapped network, subst and user-created drives all look the same), so they are
+ * ignored. Machines with a non-C: system drive are not supported by the automatic
+ * lookup; they get the actionable "install for all users" message instead.
+ *
+ * The only per-user location is %LOCALAPPDATA%\Microsoft\WindowsApps\winget.exe. It is
+ * derived from the profile directory (os.homedir()), never from LOCALAPPDATA alone,
+ * and only when LOCALAPPDATA equals it and the profile is C:\Users\<single real segment>.
  */
-function sameOnLocalDrive(value: string | undefined, fallback: string): string {
-    if (value && /^[A-Za-z]:\\/.test(value) && value.slice(2).replace(/\\+$/, '').toLowerCase() === fallback.slice(2).toLowerCase()) {
-        return value.replace(/\\+$/, '');
-    }
-    return fallback;
-}
+const RESERVED_PROFILES = new Set(['.', '..', 'public', 'default', 'default user', 'all users']);
 
-function winRoots(env: NodeJS.ProcessEnv) {
+function winRoots(env: NodeJS.ProcessEnv, homedir: string = os.homedir()) {
+    const w = nodePath.win32;
+    const m = /^C:\\Users\\([^\\/:]+)$/i.exec(homedir.replace(/[\\/]+$/, ''));
+    let localAppData: string | undefined;
+    if (m && !RESERVED_PROFILES.has(m[1].toLowerCase())) {
+        const derived = w.join(homedir.replace(/[\\/]+$/, ''), 'AppData', 'Local');
+        const fromEnv = env['LOCALAPPDATA'];
+        if (fromEnv && !/(^|[\\/])\.{1,2}([\\/]|$)/.test(fromEnv) && w.normalize(fromEnv).toLowerCase() === derived.toLowerCase()) {
+            localAppData = derived;
+        }
+    }
     return {
-        systemRoot: sameOnLocalDrive(env['SystemRoot'], 'C:\\Windows'),
-        programFiles: sameOnLocalDrive(env['ProgramFiles'], 'C:\\Program Files'),
-        programFilesX86: sameOnLocalDrive(env['ProgramFiles(x86)'], 'C:\\Program Files (x86)'),
-        programData: sameOnLocalDrive(env['ProgramData'], 'C:\\ProgramData'),
-        // Per-user path: only the standard shape C:\Users\<name>\AppData\Local is accepted.
-        localAppData: /^[A-Za-z]:\\Users\\[^\\]+\\AppData\\Local$/.test(env['LOCALAPPDATA'] ?? '') ? env['LOCALAPPDATA'] : undefined,
+        systemRoot: 'C:\\Windows',
+        programFiles: 'C:\\Program Files',
+        programFilesX86: 'C:\\Program Files (x86)',
+        programData: 'C:\\ProgramData',
+        localAppData,
     };
 }
 
@@ -77,7 +89,7 @@ function winRoots(env: NodeJS.ProcessEnv) {
  */
 export function getTrustedRoots(ctx: ResolveContext = defaultContext()): string[] {
     if (ctx.platform === 'win32') {
-        const r = winRoots(ctx.env);
+        const r = winRoots(ctx.env, ctx.homedir);
         return [nodePath.win32.join(r.systemRoot, 'System32'), r.programFiles, r.programFilesX86];
     }
     return ['/usr/bin', '/bin'];
@@ -109,7 +121,7 @@ export function isTrustedPath(candidate: string, ctx: ResolveContext = defaultCo
 /** Fixed candidate locations per tool (all absolute, all under trusted roots). */
 export function getToolCandidates(tool: ToolName, ctx: ResolveContext = defaultContext()): string[] {
     if (ctx.platform === 'win32') {
-        const r = winRoots(ctx.env);
+        const r = winRoots(ctx.env, ctx.homedir);
         const w = nodePath.win32;
         switch (tool) {
             case 'powershell':
@@ -136,9 +148,9 @@ export function getToolCandidates(tool: ToolName, ctx: ResolveContext = defaultC
         case 'powershell':
             return [];
         case 'pwsh':
-            return ['/usr/local/bin/pwsh', '/opt/homebrew/bin/pwsh', '/usr/bin/pwsh', '/snap/bin/pwsh'];
+            return ['/usr/local/bin/pwsh', '/opt/homebrew/bin/pwsh', '/home/linuxbrew/.linuxbrew/bin/pwsh', '/usr/bin/pwsh', '/snap/bin/pwsh'];
         case 'az':
-            return ['/opt/homebrew/bin/az', '/usr/local/bin/az', '/usr/bin/az'];
+            return ['/opt/homebrew/bin/az', '/usr/local/bin/az', '/home/linuxbrew/.linuxbrew/bin/az', '/usr/bin/az'];
         case 'brew':
             return ['/opt/homebrew/bin/brew', '/usr/local/bin/brew', '/home/linuxbrew/.linuxbrew/bin/brew'];
         case 'bash':
@@ -174,7 +186,7 @@ export function validateLookupResult(found: string | undefined, ctx: ResolveCont
  */
 export function getTrustedCwd(ctx: ResolveContext = defaultContext()): string {
     if (ctx.platform === 'win32') {
-        return nodePath.win32.join(winRoots(ctx.env).systemRoot, 'System32');
+        return nodePath.win32.join(winRoots(ctx.env, ctx.homedir).systemRoot, 'System32');
     }
     return '/';
 }
@@ -182,7 +194,7 @@ export function getTrustedCwd(ctx: ResolveContext = defaultContext()): string {
 /** Absolute path to where.exe / which, used for the PATH-lookup fallback. */
 export function getLookupTool(ctx: ResolveContext = defaultContext()): string {
     return ctx.platform === 'win32'
-        ? nodePath.win32.join(winRoots(ctx.env).systemRoot, 'System32', 'where.exe')
+        ? nodePath.win32.join(winRoots(ctx.env, ctx.homedir).systemRoot, 'System32', 'where.exe')
         : '/usr/bin/which';
 }
 
@@ -193,4 +205,13 @@ export function getLookupTool(ctx: ResolveContext = defaultContext()): string {
  */
 export function notFoundMessage(tool: ToolName): string {
     return `${tool} was not found in a trusted system location. Install it for all users (for example under C:\\Program Files on Windows, or via Homebrew / the system package manager elsewhere) and restart the app.`;
+}
+
+/**
+ * Absolute path to cmd.exe for shell:true launches (needed to run az.cmd). Passing it
+ * explicitly stops Node from consulting the attacker-influenceable ComSpec variable.
+ * Returns false (no shell) on non-Windows.
+ */
+export function getTrustedShell(ctx: ResolveContext = defaultContext()): string | false {
+    return ctx.platform === 'win32' ? nodePath.win32.join(winRoots(ctx.env, ctx.homedir).systemRoot, 'System32', 'cmd.exe') : false;
 }
