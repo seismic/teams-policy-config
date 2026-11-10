@@ -1,12 +1,12 @@
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { getSafeCwd, ProgressLogger, withCommonCliPath } from './util/os-util';
-import { resolveTrustedTool, ToolName } from './util/trusted-exec';
+import { notFoundMessage, resolveTrustedTool, ToolName } from './util/trusted-exec';
 
 const execFileAsync = promisify(execFile);
 
-const HOMEBREW_INSTALL_COMMAND = 'NONINTERACTIVE=1 /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"';
-const HOMEBREW_INSTALL_COMMAND_INTERACTIVE = '/bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"';
+const HOMEBREW_INSTALL_COMMAND = 'NONINTERACTIVE=1 /bin/bash -c "$(/usr/bin/curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"';
+const HOMEBREW_INSTALL_COMMAND_INTERACTIVE = '/bin/bash -c "$(/usr/bin/curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"';
 
 function escapeForAppleScript(value: string): string {
 	return value.replace(/\\/g, '\\\\').replace(/"/g, '\\"');
@@ -19,7 +19,7 @@ function escapeForAppleScript(value: string): string {
 async function execTrusted(tool: ToolName, args: string[], options: { cwd?: string; env?: NodeJS.ProcessEnv } = {}) {
 	const executable = resolveTrustedTool(tool);
 	if (!executable) {
-		const err = new Error(`${tool} was not found in a trusted location.`) as NodeJS.ErrnoException;
+		const err = new Error(notFoundMessage(tool)) as NodeJS.ErrnoException;
 		err.code = 'ENOENT';
 		throw err;
 	}

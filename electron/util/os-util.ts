@@ -7,6 +7,7 @@ import {
     getTrustedCwd,
     getToolCandidates,
     resolveTrustedTool,
+    notFoundMessage,
     validateLookupResult,
 } from './trusted-exec';
 
@@ -68,7 +69,7 @@ export function withCommonCliPath(env: NodeJS.ProcessEnv = process.env): NodeJS.
 }
 
 /**
- * Pinned, trusted working directory for every child process. Never process.cwd():
+ * Pinned, trusted working directory for every child process. Never the process working directory:
  * an attacker-writable launch directory must not influence executable lookup.
  */
 export function getSafeCwd(): string {
@@ -137,8 +138,21 @@ export async function resolveAzCliPath(): Promise<string | null> {
  * @returns Command output details including executable, stdout, and stderr.
  * @throws An error if no PowerShell executable is found or if execution fails for reasons other than missing executable.
  */
-export async function runPowerShell(script: string, log?: ProgressLogger, completeMessage?: string): Promise<PowerShellCommandResult> {
+export async function runPowerShell(
+    script: string,
+    log?: ProgressLogger,
+    completeMessage?: string,
+    options?: { env?: Record<string, string> }
+): Promise<PowerShellCommandResult> {
     const executables = getPowerShellExecutables();
+    // Pass the already-validated Azure CLI path to the script as DATA so scripts never
+    // search PATH for az (MTGINGEST-5916). Caller-supplied env is data too (see #13).
+    const azPath = await resolveAzCliPath();
+    const childEnv: NodeJS.ProcessEnv = {
+        ...withCommonCliPath(),
+        ...(options?.env ?? {}),
+        ...(azPath ? { TPC_AZ_CLI: azPath } : {})
+    };
 
     let lastError: unknown;
     for (const executable of executables) {
@@ -146,7 +160,7 @@ export async function runPowerShell(script: string, log?: ProgressLogger, comple
             // log?.(`Running PowerShell via ${executable}...`);
             const { stdout, stderr } = await execFileAsync(executable, ['-NoProfile', '-Command', script], {
                 cwd: getSafeCwd(),
-                env: withCommonCliPath()
+                env: childEnv
             });
 
             if (completeMessage) {
@@ -171,7 +185,7 @@ export async function runPowerShell(script: string, log?: ProgressLogger, comple
     }
 
     if (lastError) throw lastError;
-    const notFound = new Error('PowerShell executable was not found in a trusted location.') as NodeJS.ErrnoException;
+    const notFound = new Error(notFoundMessage('pwsh')) as NodeJS.ErrnoException;
     notFound.code = 'ENOENT';
     throw notFound;
 }

@@ -22,54 +22,86 @@ export type ResolveContext = {
     exists: (p: string) => boolean;
 };
 
+/**
+ * existsSync can report false for Windows App Execution Aliases (winget.exe is a
+ * zero-byte reparse point that stat() cannot follow), so fall back to lstat,
+ * which inspects the link itself.
+ */
+function fileExists(p: string): boolean {
+    try {
+        if (fs.existsSync(p)) return true;
+        fs.lstatSync(p);
+        return true;
+    } catch {
+        return false;
+    }
+}
+
 function defaultContext(): ResolveContext {
-    return { platform: process.platform, env: process.env, exists: (p) => fs.existsSync(p) };
+    return { platform: process.platform, env: process.env, exists: fileExists };
 }
 
 function pathApi(platform: NodeJS.Platform) {
     return platform === 'win32' ? nodePath.win32 : nodePath.posix;
 }
 
+/**
+ * Environment variables are attacker-influenceable (e.g. ProgramFiles=\\evil\\share),
+ * so they are only honoured when they name the SAME well-known path on a local
+ * drive letter (handles a non-C: system drive). UNC and any other value fall back
+ * to the fixed default.
+ */
+function sameOnLocalDrive(value: string | undefined, fallback: string): string {
+    if (value && /^[A-Za-z]:\\/.test(value) && value.slice(2).replace(/\\+$/, '').toLowerCase() === fallback.slice(2).toLowerCase()) {
+        return value.replace(/\\+$/, '');
+    }
+    return fallback;
+}
+
 function winRoots(env: NodeJS.ProcessEnv) {
     return {
-        systemRoot: env['SystemRoot'] || 'C:\\Windows',
-        programFiles: env['ProgramFiles'] || 'C:\\Program Files',
-        programFilesX86: env['ProgramFiles(x86)'] || 'C:\\Program Files (x86)',
-        programData: env['ProgramData'] || 'C:\\ProgramData',
-        localAppData: env['LOCALAPPDATA'],
+        systemRoot: sameOnLocalDrive(env['SystemRoot'], 'C:\\Windows'),
+        programFiles: sameOnLocalDrive(env['ProgramFiles'], 'C:\\Program Files'),
+        programFilesX86: sameOnLocalDrive(env['ProgramFiles(x86)'], 'C:\\Program Files (x86)'),
+        programData: sameOnLocalDrive(env['ProgramData'], 'C:\\ProgramData'),
+        // Per-user path: only the standard shape C:\Users\<name>\AppData\Local is accepted.
+        localAppData: /^[A-Za-z]:\\Users\\[^\\]+\\AppData\\Local$/.test(env['LOCALAPPDATA'] ?? '') ? env['LOCALAPPDATA'] : undefined,
     };
 }
 
 /**
- * Directories that executables may be loaded from. Anything outside is untrusted.
+ * Directories whose contents are writable only by administrators/OS, so ANY file
+ * inside is acceptable. User-writable or ACL-dependent locations (WindowsApps,
+ * ProgramData\\chocolatey, /usr/local/bin, /opt/homebrew/bin, ...) are NOT roots:
+ * they are trusted only through the exact candidate files in getToolCandidates.
  */
 export function getTrustedRoots(ctx: ResolveContext = defaultContext()): string[] {
     if (ctx.platform === 'win32') {
         const r = winRoots(ctx.env);
-        const roots = [
-            nodePath.win32.join(r.systemRoot, 'System32'),
-            r.programFiles,
-            r.programFilesX86,
-            nodePath.win32.join(r.programData, 'chocolatey'),
-        ];
-        if (r.localAppData) {
-            roots.push(nodePath.win32.join(r.localAppData, 'Microsoft', 'WindowsApps'));
-        }
-        return roots;
+        return [nodePath.win32.join(r.systemRoot, 'System32'), r.programFiles, r.programFilesX86];
     }
-    return ['/usr/bin', '/bin', '/usr/local/bin', '/opt/homebrew/bin', '/home/linuxbrew/.linuxbrew/bin', '/snap/bin'];
+    return ['/usr/bin', '/bin'];
 }
 
-/** True when `candidate` is an absolute path strictly inside one of the trusted roots. */
+const ALL_TOOLS: ToolName[] = ['powershell', 'pwsh', 'winget', 'choco', 'az', 'brew', 'bash'];
+
+/**
+ * True when `candidate` is an absolute path that is either inside an admin-only
+ * trusted root, or exactly one of the fixed per-tool candidate files.
+ */
 export function isTrustedPath(candidate: string, ctx: ResolveContext = defaultContext()): boolean {
     const p = pathApi(ctx.platform);
     if (!candidate || !p.isAbsolute(candidate)) return false;
+    if (/^[\\/]{2}/.test(candidate)) return false; // UNC / device paths
     // Reject traversal before normalising so "C:\Program Files\..\evil" cannot sneak in.
     if (candidate.split(/[\\/]/).includes('..')) return false;
-    const normalized = p.normalize(candidate);
-    const fold = (s: string) => (ctx.platform === 'win32' ? s.toLowerCase() : s);
+    const fold = (x: string) => (ctx.platform === 'win32' ? x.toLowerCase() : x);
+    const normalized = fold(p.normalize(candidate));
+    if (ALL_TOOLS.some((t) => getToolCandidates(t, ctx).some((c) => fold(p.normalize(c)) === normalized))) {
+        return true;
+    }
     return getTrustedRoots(ctx).some((root) => {
-        const rel = p.relative(fold(p.normalize(root)), fold(normalized));
+        const rel = p.relative(fold(p.normalize(root)), normalized);
         return !!rel && !rel.startsWith('..') && !p.isAbsolute(rel);
     });
 }
@@ -83,7 +115,10 @@ export function getToolCandidates(tool: ToolName, ctx: ResolveContext = defaultC
             case 'powershell':
                 return [w.join(r.systemRoot, 'System32', 'WindowsPowerShell', 'v1.0', 'powershell.exe')];
             case 'pwsh':
-                return [w.join(r.programFiles, 'PowerShell', '7', 'pwsh.exe')];
+                return [
+                    w.join(r.programFiles, 'PowerShell', '7', 'pwsh.exe'),
+                    w.join(r.programFiles, 'PowerShell', '7-preview', 'pwsh.exe'),
+                ];
             case 'winget':
                 return r.localAppData ? [w.join(r.localAppData, 'Microsoft', 'WindowsApps', 'winget.exe')] : [];
             case 'choco':
@@ -149,4 +184,13 @@ export function getLookupTool(ctx: ResolveContext = defaultContext()): string {
     return ctx.platform === 'win32'
         ? nodePath.win32.join(winRoots(ctx.env).systemRoot, 'System32', 'where.exe')
         : '/usr/bin/which';
+}
+
+/**
+ * Actionable message for when a tool is not available in a trusted location.
+ * Per-user installs (e.g. under %LOCALAPPDATA% or ~/.local/bin) are deliberately
+ * not accepted because those folders are writable by the launching user.
+ */
+export function notFoundMessage(tool: ToolName): string {
+    return `${tool} was not found in a trusted system location. Install it for all users (for example under C:\\Program Files on Windows, or via Homebrew / the system package manager elsewhere) and restart the app.`;
 }

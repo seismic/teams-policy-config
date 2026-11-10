@@ -1,4 +1,5 @@
 import { spawn } from 'node:child_process';
+import path from 'node:path';
 import {
   ProgressLogger,
 } from './os-util';
@@ -23,6 +24,13 @@ export async function runCommandWithLiveLogs(
   }
 ): Promise<{ stdout: string; stderr: string }> {
   const { cwd, env, log, timeoutMs = 0 } = options;
+
+  if (!path.isAbsolute(executable)) {
+    // Never launch by bare name: that would allow a cwd/PATH search (MTGINGEST-5917).
+    const err = new Error(`Refusing to run non-absolute executable: ${executable}`) as NodeJS.ErrnoException;
+    err.code = 'EINVAL';
+    return Promise.reject(err);
+  }
 
   return new Promise((resolve, reject) => {
     // Windows needs a shell to run the Azure CLI's `.cmd` wrapper, but shell:true does
