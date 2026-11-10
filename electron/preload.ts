@@ -14,6 +14,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   searchUsers: (searchText: string, page: number = 0) => ipcRenderer.invoke('search-users', { searchText, page }),
   resolveUsersByEmails: (emails: string[]) => ipcRenderer.invoke('search-users-by-emails', { emails }),
   searchGroups: (searchText: string, page: number = 0) => ipcRenderer.invoke('search-groups', { searchText, page }),
+  getAppId: () => ipcRenderer.invoke('config:get-app-id'),
   getSavedPolicyName: () => ipcRenderer.invoke('settings:get-policy-name'),
   setSavedPolicyName: (policyName: string) => ipcRenderer.invoke('settings:set-policy-name', { policyName }),
   installPowerShell: () => ipcRenderer.invoke('system:install-powershell'),

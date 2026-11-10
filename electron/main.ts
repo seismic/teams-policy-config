@@ -5,7 +5,7 @@ import { app, BrowserWindow, ipcMain, shell } from 'electron';
 import { grantAccessPolicy, runPreLoginPowerShellTasks, SetupResult } from './teams-setup';
 import { createEnterpriseLogger } from './util/logger/enterprise-logger';
 import { installAzureCli, installHomebrew, installPowerShell } from './install-cli';
-import { searchGroups, searchUsers, searchUsersByEmails } from './commands';
+import { getTeamsAppId, searchGroups, searchUsers, searchUsersByEmails } from './commands';
 import { EMAIL_BATCH_LIMIT, isValidEmail, isValidGuid, isValidPolicyName, isValidSearchText } from './util/validate';
 import { GrantType, GRANT_TYPE_VALUES } from './util/grant-types';
 import {
@@ -113,6 +113,18 @@ function writeAppSettings(nextSettings: AppSettings): void {
 
   fs.writeFileSync(settingsPath, JSON.stringify(nextSettings, null, 2), 'utf8');
 }
+
+/**
+ * IPC endpoint returning the validated application ID that policies will be
+ * granted to, so the Review step can show it before the admin confirms.
+ */
+ipcMain.handle('config:get-app-id', async () => {
+  try {
+    return { success: true, data: { appId: getTeamsAppId() } };
+  } catch (error) {
+    return { success: false, error: error instanceof Error ? error.message : String(error) };
+  }
+});
 
 ipcMain.handle('settings:get-policy-name', async () => {
   const elog = createAppLogger();

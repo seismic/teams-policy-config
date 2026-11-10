@@ -108,7 +108,9 @@ export function createWindow(): void {
 		applyMacDockIconSafely();
 	}
 
-	const devServerUrl = process.env.VITE_DEV_SERVER_URL;
+	// Dev server URL is honored only in unpackaged runs and only for local origins.
+	const requestedDevUrl = app.isPackaged ? undefined : process.env.VITE_DEV_SERVER_URL;
+	const devServerUrl = requestedDevUrl && isLocalUrl(requestedDevUrl) ? requestedDevUrl : undefined;
 
 	// Inject CSP for dev-server (localhost) requests only.
 	// Production CSP comes from the <meta> tag in index.html.

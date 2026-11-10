@@ -1,6 +1,7 @@
 /// <reference types="node" />
 import './env';
 import { PowerShellCommandResult, ProgressLogger, runPowerShell } from './util/os-util';
+import { resolveTeamsAppId } from './util/env-config';
 import { assertGroupId, assertPolicyName, psSingleQuote } from './util/validate';
 
 type AccessPolicy = {
@@ -39,15 +40,13 @@ export interface UserAndGroupListResult {
 
 const AZ_LIST_LIMIT = 10;
 
-function getTeamsAppId(log?: ProgressLogger): string {
-    const appId = process.env.VITE_APP_ID?.trim();
-    if (!appId) {
-        const message = 'VITE_APP_ID is not configured. Set VITE_APP_ID in the .env file.';
-        log?.(message);
-        throw new Error(message);
+export function getTeamsAppId(log?: ProgressLogger): string {
+    try {
+        return resolveTeamsAppId(process.env.VITE_APP_ID);
+    } catch (error) {
+        log?.(error instanceof Error ? error.message : String(error));
+        throw error;
     }
-
-    return appId;
 }
 
 function normalizeUsers(users: User[] | User | null): User[] {
@@ -697,4 +696,4 @@ export async function grantPolicyToGlobal(log: ProgressLogger, policyName: strin
         stdout: result.stdout.trim(),
         stderr: result.stderr.trim()
     };
-}
+}

@@ -32,6 +32,8 @@ npm start
    ```
    `VITE_APP_ID` is **mandatory** — the app will not work without it.
 
+   **Security:** `VITE_APP_ID` must be a GUID. It is read only from the project-root `.env` (dev) or the `.env` bundled inside the packaged app (`app.asar`) at build time; a `.env` in the launch directory or next to the executable is never loaded, and only allowlisted variables are accepted.
+
    | Variable | Description | Default |
    |---|---|---|
    | `VITE_APP_ID` | Azure App ID **(mandatory)** | _(none)_ |

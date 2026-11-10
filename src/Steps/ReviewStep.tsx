@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import {
     InputAdornment,
     IconButton,
@@ -23,11 +23,35 @@ type ReviewStepProps = {
     type: PolicyTargetType;
     users: Option[];
     groups: Option[];
+    onAppIdValidChange?: (valid: boolean) => void;
 };
 
-export default function ReviewStep({ policyName, type, users, groups }: ReviewStepProps) {
+export default function ReviewStep({ policyName, type, users, groups, onAppIdValidChange }: ReviewStepProps) {
     const [search, setSearch] = useState('');
     const [page, setPage] = useState(1);
+    const [appId, setAppId] = useState<string | null>(null);
+    const [appIdError, setAppIdError] = useState<string | null>(null);
+
+    useEffect(() => {
+        let cancelled = false;
+        onAppIdValidChange?.(false);
+        window.electronAPI.getAppId?.()
+            .then((res) => {
+                if (cancelled) return;
+                if (res?.success && res.data?.appId) {
+                    setAppId(res.data.appId);
+                    onAppIdValidChange?.(true);
+                } else setAppIdError(res?.error ?? 'Application ID is not available.');
+            })
+            .catch((err) => !cancelled && setAppIdError(String(err)));
+        return () => { cancelled = true; };
+    }, []);
+
+    const appIdLine = (
+        <Typography variant="body2" sx={{ mb: 2 }} role={appIdError ? 'alert' : undefined} color={appIdError ? 'error' : undefined}>
+            Application ID: <strong>{appId ?? appIdError ?? 'Loading…'}</strong>
+        </Typography>
+    );
 
     const items: Option[] = type === POLICY_TARGET_TYPE.USER ? users : type === POLICY_TARGET_TYPE.GROUP ? groups : [];
 
@@ -53,6 +77,7 @@ export default function ReviewStep({ policyName, type, users, groups }: ReviewSt
     if (type === POLICY_TARGET_TYPE.GLOBAL) {
         return (
             <div className="step-content">
+                {appIdLine}
                 <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
                     The policy <strong>{policyName}</strong> will be granted to all users in the Azure organization.
                 </Typography>
@@ -76,6 +101,7 @@ export default function ReviewStep({ policyName, type, users, groups }: ReviewSt
 
     return (
         <div className="step-content">
+            {appIdLine}
             <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
                 {subtitle}
             </Typography>
