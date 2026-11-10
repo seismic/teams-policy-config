@@ -265,7 +265,7 @@ New-CsApplicationAccessPolicy -Identity "<policyName>" -AppIds "<teamsAppId>" -D
 ```
 
 - `-Identity`: The policy name the admin entered.
-- `-AppIds`: Resolved from the `VITE_APP_ID` environment variable via `getTeamsAppId()` in [electron/commands.ts](../electron/commands.ts) — loaded at process start by [electron/env.ts](../electron/env.ts) from `.env` (dev), the build output's `.env` sidecar, or the packaged app's `resources/` / `process.execPath` directory. If `VITE_APP_ID` is unset, `getTeamsAppId()` throws and the operation fails fast.
+- `-AppIds`: Resolved from the `VITE_APP_ID` environment variable via `getTeamsAppId()` in [electron/commands.ts](../electron/commands.ts) — loaded at process start by [electron/env.ts](../electron/env.ts) from a single trusted location (the `.env` bundled in `app.asar` for packaged builds; the project-root `.env` in development). Only allowlisted keys are accepted. `getTeamsAppId()` requires a strict GUID and throws otherwise.
 - `-Description`: Hardcoded human-readable description.
 
 This tells Microsoft Teams: *"There is now a policy authorizing this specific app to access meeting data."*
@@ -503,7 +503,7 @@ The renderer-facing names (`setupEnvironment`, `searchUsers`, `openLogsFolder`, 
 | [electron/main.ts](../electron/main.ts) | All IPC handlers — routes UI actions to backend functions; owns session logger and settings store |
 | [electron/preload.ts](../electron/preload.ts) | Exposes `window.electronAPI` to the renderer via `contextBridge` |
 | [electron/window.ts](../electron/window.ts) | Electron BrowserWindow creation |
-| [electron/env.ts](../electron/env.ts) | Loads `.env` (incl. `VITE_APP_ID`) into `process.env` — checks dev, build-output, packaged, and execPath locations |
+| [electron/env.ts](../electron/env.ts) | Loads allowlisted keys (`VITE_APP_ID`; dev-only `VITE_DEV_SERVER_URL`) from one trusted `.env` — bundled in `app.asar` when packaged, project root in dev. Never reads `process.cwd()` or the executable's directory |
 | [electron/teams-setup.ts](../electron/teams-setup.ts) | Orchestrator — `runPreLoginPowerShellTasks()` and `grantAccessPolicy()` |
 | [electron/azure.ts](../electron/azure.ts) | Azure device-code login via Azure CLI (`runAzLogin()`) |
 | [electron/commands.ts](../electron/commands.ts) | PowerShell + Azure CLI commands — policy CRUD via MicrosoftTeams module, user/group search via `az ad user/group list` |

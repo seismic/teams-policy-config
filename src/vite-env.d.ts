@@ -29,6 +29,7 @@ interface Window {
 		searchUsers: (searchText: string, page?: number) => Promise<ElectronApiResult>;
 		resolveUsersByEmails: (emails: string[]) => Promise<ElectronApiResult>;
 		searchGroups: (searchText: string, page?: number) => Promise<ElectronApiResult>;
+		getAppId?: () => Promise<ElectronApiResult>;
 		getSavedPolicyName?: () => Promise<ElectronApiResult>;
 		setSavedPolicyName?: (policyName: string) => Promise<ElectronApiResult>;
 		installPowerShell?: () => Promise<any>;
