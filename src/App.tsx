@@ -83,6 +83,8 @@ export default function App() {
     }
   }, [logs]);
 
+  const [isAppIdValid, setIsAppIdValid] = useState(false);
+
   const stepValidation = useMemo(() => {
     const step1Valid = isEnvironmentSetupComplete;
     const step2Valid = isAzureLoginComplete;
@@ -98,9 +100,9 @@ export default function App() {
         (selectedType === POLICY_TARGET_TYPE.GROUP && hasGroupSelection)
       );
     const step3Valid = isGrantPolicyComplete || isGrantPolicyReady;
-    const step4Valid = true; // Review is always valid — it's read-only
+    const step4Valid = isAppIdValid; // Review is read-only, but Apply requires a valid application ID
     return [step1Valid, step2Valid, step3Valid, step4Valid];
-  }, [isEnvironmentSetupComplete, isAzureLoginComplete, isGrantPolicyComplete, grantPolicyValues]);
+  }, [isEnvironmentSetupComplete, isAzureLoginComplete, isGrantPolicyComplete, grantPolicyValues, isAppIdValid]);
 
   const isCurrentStepValid = stepValidation[currentStep];
   const isLastStep = currentStep === LAST_WIZARD_STEP;
@@ -603,6 +605,7 @@ export default function App() {
               type={grantPolicyValues.type}
               users={grantPolicyValues.users ?? []}
               groups={grantPolicyValues.groups ?? []}
+              onAppIdValidChange={setIsAppIdValid}
             />
           )}
 

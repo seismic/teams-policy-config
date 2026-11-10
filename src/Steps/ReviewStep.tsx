@@ -23,9 +23,10 @@ type ReviewStepProps = {
     type: PolicyTargetType;
     users: Option[];
     groups: Option[];
+    onAppIdValidChange?: (valid: boolean) => void;
 };
 
-export default function ReviewStep({ policyName, type, users, groups }: ReviewStepProps) {
+export default function ReviewStep({ policyName, type, users, groups, onAppIdValidChange }: ReviewStepProps) {
     const [search, setSearch] = useState('');
     const [page, setPage] = useState(1);
     const [appId, setAppId] = useState<string | null>(null);
@@ -33,11 +34,14 @@ export default function ReviewStep({ policyName, type, users, groups }: ReviewSt
 
     useEffect(() => {
         let cancelled = false;
+        onAppIdValidChange?.(false);
         window.electronAPI.getAppId?.()
             .then((res) => {
                 if (cancelled) return;
-                if (res?.success && res.data?.appId) setAppId(res.data.appId);
-                else setAppIdError(res?.error ?? 'Application ID is not available.');
+                if (res?.success && res.data?.appId) {
+                    setAppId(res.data.appId);
+                    onAppIdValidChange?.(true);
+                } else setAppIdError(res?.error ?? 'Application ID is not available.');
             })
             .catch((err) => !cancelled && setAppIdError(String(err)));
         return () => { cancelled = true; };
