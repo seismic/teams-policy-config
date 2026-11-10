@@ -30,6 +30,7 @@ import DescriptionOutlinedIcon from '@mui/icons-material/DescriptionOutlined';
 import CheckCircleOutlineIcon from '@mui/icons-material/CheckCircleOutline';
 import EntitySelectionDialog from './EntitySelectionDialog';
 import './grantPolicyStep.scss';
+import { EMAIL_BATCH_LIMIT, isValidEmail, isValidSearchText } from '../../electron/util/validate';
 
 type UserRecord = {
     Id?: string;
@@ -229,6 +230,12 @@ export default function GrantPolicyStep({ onValuesChange, isSubmitting, initialT
             return;
         }
 
+        if (!isValidSearchText(userDialogQuery)) {
+            setUserDialogOptions([]);
+            setUserDialogTotal(0);
+            return;
+        }
+
         setUserDialogLoading(true);
         window.electronAPI.searchUsers(userDialogQuery, userDialogPage)
             .then((result) => {
@@ -258,6 +265,12 @@ export default function GrantPolicyStep({ onValuesChange, isSubmitting, initialT
 
     useEffect(() => {
         if (!isGroupDialogOpen) {
+            return;
+        }
+
+        if (!isValidSearchText(groupDialogQuery)) {
+            setGroupDialogOptions([]);
+            setGroupDialogTotal(0);
             return;
         }
 
@@ -604,7 +617,12 @@ export default function GrantPolicyStep({ onValuesChange, isSubmitting, initialT
 
                                                                 try {
                                                                     const emails = newOptions.map((option) => String(option.value));
-                                                                    const response = await window.electronAPI.resolveUsersByEmails(emails);
+                                                                    // Only well-formed addresses are sent to the main process (it re-validates
+                                                                    // strictly); anything else is reported as unresolved and never reaches a shell.
+                                                                    const validEmails = emails.filter((e) => isValidEmail(e)).slice(0, EMAIL_BATCH_LIMIT);
+                                                                    const response = validEmails.length > 0
+                                                                        ? await window.electronAPI.resolveUsersByEmails(validEmails)
+                                                                        : { success: true, data: { users: [] } };
                                                                     const resolvedUsers = Array.isArray(response?.data?.users)
                                                                         ? response.data.users
                                                                         : [];

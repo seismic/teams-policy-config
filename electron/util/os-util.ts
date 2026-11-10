@@ -146,10 +146,16 @@ export async function resolveAzCliPath(): Promise<string | null> {
  * @param script The PowerShell script to execute as a string.
  * @param log Optional callback to receive progress messages for UI updates.
  * @param completeMessage Optional message to log upon successful completion of the script.
+ * @param options Optional extra environment variables exposed to the script as data.
  * @returns Command output details including executable, stdout, and stderr.
  * @throws An error if no PowerShell executable is found or if execution fails for reasons other than missing executable.
  */
-export async function runPowerShell(script: string, log?: ProgressLogger, completeMessage?: string): Promise<PowerShellCommandResult> {
+export async function runPowerShell(
+    script: string,
+    log?: ProgressLogger,
+    completeMessage?: string,
+    options?: { env?: Record<string, string> }
+): Promise<PowerShellCommandResult> {
     const executables = getPowerShellExecutables();
 
     let lastError: unknown;
@@ -158,7 +164,8 @@ export async function runPowerShell(script: string, log?: ProgressLogger, comple
             // log?.(`Running PowerShell via ${executable}...`);
             const { stdout, stderr } = await execFileAsync(executable, ['-NoProfile', '-Command', script], {
                 cwd: process.cwd(),
-                env: withCommonCliPath()
+                // options.env carries untrusted values as DATA (read via $env:NAME), never as script source.
+                env: { ...withCommonCliPath(), ...(options?.env ?? {}) }
             });
 
             if (completeMessage) {
