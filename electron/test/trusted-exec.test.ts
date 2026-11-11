@@ -279,7 +279,7 @@ describe('user-writable locations only trusted as exact candidates', () => {
   it('finds PowerShell 7-preview and reports actionable not-found text', () => {
     const prev = 'C:\\Program Files\\PowerShell\\7-preview\\pwsh.exe';
     expect(resolveTrustedTool('pwsh', winCtx([prev]))).toBe(prev);
-    expect(notFoundMessage('az', winCtx([]))).toMatch(/Install it for all users/);
+    expect(notFoundMessage('az', { ...winCtx([]), exists: () => true })).toMatch(/Install it for all users/);
   });
 });
 
