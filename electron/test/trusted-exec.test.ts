@@ -17,6 +17,8 @@ vi.mock('node:child_process', async (orig) => {
 
 import {
   getToolCandidates,
+  isCmdSafePath,
+  isUnsupportedWindowsLayout,
   getTrustedShell,
   getLookupTool,
   getTrustedCwd,
@@ -202,6 +204,63 @@ describe('environment-derived roots are ignored (re-review N1/N2)', () => {
   });
 });
 
+describe('profile segment hardening (re-review: alias names)', () => {
+  const winget = (home: string) => {
+    const lad = `${home}\\AppData\\Local`;
+    return getToolCandidates('winget', mk({ ...WIN_ENV, LOCALAPPDATA: lad }, home));
+  };
+  it.each([
+    'C:\\Users\\Public.', 'C:\\Users\\Public ', 'C:\\Users\\Public. .', 'C:\\Users\\Default.',
+    'C:\\Users\\Default User.', 'C:\\Users\\All Users.', 'C:\\Users\\PUBLIC~1', 'C:\\Users\\DEFAUL~1',
+    'C:\\Users\\public', 'C:\\Users\\.hidden', 'C:\\Users\\ lead',
+  ])('rejects profile %j', (home) => {
+    expect(winget(home)).toEqual([]);
+  });
+  it.each(['C:\\Users\\u', 'C:\\Users\\u.DOMAIN', 'C:\\Users\\john.smith', 'C:\\Users\\John Smith', 'C:\\Users\\a_b-c'])('keeps legitimate profile %j working', (home) => {
+    expect(winget(home)).toHaveLength(1);
+  });
+  it('the real context takes the profile from os.userInfo(), not USERPROFILE/os.homedir()', () => {
+    const src = fs.readFileSync(path.resolve(__dirname, '..', 'util', 'trusted-exec.ts'), 'utf8');
+    expect(src).toMatch(/os\.userInfo\(\)\.homedir/);
+    expect(src.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '')).not.toMatch(/os\.homedir\(\)/);
+  });
+});
+
+describe('platform-appropriate not-found messages', () => {
+  const win = (extra: Partial<ResolveContext> = {}): ResolveContext => ({ platform: 'win32', env: WIN_ENV, exists: () => true, homedir: HOME, ...extra });
+  it('Windows on C: names the right tool and says install for all users', () => {
+    expect(notFoundMessage('powershell', win())).toMatch(/powershell\.exe.*Install it for all users/);
+    expect(notFoundMessage('az', win())).toMatch(/Azure CLI.*Program Files/);
+  });
+  it('non-C: system drive gets an explicit unsupported message', () => {
+    const m = notFoundMessage('powershell', win({ env: { ...WIN_ENV, SystemDrive: 'D:', SystemRoot: 'D:\\Windows' } }));
+    expect(m).toMatch(/not supported when Windows is not installed on C:/);
+    expect(m).not.toMatch(/Install it for all users/);
+  });
+  it('missing C:\\Windows\\System32 gets the unsupported message', () => {
+    expect(isUnsupportedWindowsLayout(win({ exists: () => false }))).toBe(true);
+    expect(notFoundMessage('az', win({ exists: () => false }))).toMatch(/not supported/);
+  });
+  it('macOS/Linux messages are not Windows-flavoured', () => {
+    const m = notFoundMessage('pwsh', { platform: 'darwin', env: {}, exists: () => true });
+    expect(m).toMatch(/Homebrew|package manager/);
+    expect(m).not.toMatch(/Program Files|C:/);
+  });
+});
+
+describe('cmd.exe metacharacters and error text', () => {
+  it.each(['C:\\x\\a%b.cmd', 'C:\\x\\a&b.cmd', 'C:\\x\\a^b.cmd', 'C:\\x\\a!b.cmd', 'C:\\x\\a"b.cmd'])('isCmdSafePath rejects %s', (p) => expect(isCmdSafePath(p)).toBe(false));
+  it('accepts Program Files (x86) paths', () => expect(isCmdSafePath('C:\\Program Files (x86)\\Microsoft SDKs\\Azure\\CLI2\\wbin\\az.cmd')).toBe(true));
+  it('EINVAL message does not echo the rejected path (it is logged instead)', async () => {
+    const { runCommandWithLiveLogs } = await import('../util/powershell');
+    const logs: string[] = [];
+    const err: any = await runCommandWithLiveLogs('/tmp/secret-evil/az', [], { cwd: '/', log: (m) => logs.push(m) }).catch((e) => e);
+    expect(err.code).toBe('EINVAL');
+    expect(err.message).not.toContain('/tmp/secret-evil');
+    expect(logs.join('\n')).toContain('/tmp/secret-evil/az');
+  });
+});
+
 describe('user-writable locations only trusted as exact candidates', () => {
   const ctx = winCtx([]);
   it('accepts exact winget alias / choco candidates but not other files in those folders', () => {
@@ -220,7 +279,7 @@ describe('user-writable locations only trusted as exact candidates', () => {
   it('finds PowerShell 7-preview and reports actionable not-found text', () => {
     const prev = 'C:\\Program Files\\PowerShell\\7-preview\\pwsh.exe';
     expect(resolveTrustedTool('pwsh', winCtx([prev]))).toBe(prev);
-    expect(notFoundMessage('az')).toMatch(/Install it for all users/);
+    expect(notFoundMessage('az', winCtx([]))).toMatch(/Install it for all users/);
   });
 });
 
@@ -230,7 +289,8 @@ describe('winget App Execution Alias detection', () => {
     const alias = 'C:\\Users\\u\\AppData\\Local\\Microsoft\\WindowsApps\\winget.exe';
     vi.spyOn(fs, 'existsSync').mockReturnValue(false);
     vi.spyOn(fs, 'lstatSync').mockImplementation(((p: any) => { if (String(p) === alias) return {} as any; throw new Error('ENOENT'); }) as any);
-    vi.spyOn(os, 'homedir').mockReturnValue(HOME);
+    vi.spyOn(os, 'userInfo').mockReturnValue({ homedir: HOME } as any);
+    vi.spyOn(os, 'homedir').mockReturnValue('C:\\Users\\Public.');
     const origPlatform = Object.getOwnPropertyDescriptor(process, 'platform')!;
     Object.defineProperty(process, 'platform', { value: 'win32' });
     const saved = { ...process.env };

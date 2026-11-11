@@ -21,7 +21,7 @@ export type ResolveContext = {
     platform: NodeJS.Platform;
     env: NodeJS.ProcessEnv;
     exists: (p: string) => boolean;
-    /** User profile directory; defaults to os.homedir(). */
+    /** User profile directory; defaults to the OS account's profile (os.userInfo().homedir). */
     homedir?: string;
 };
 
@@ -40,8 +40,20 @@ function fileExists(p: string): boolean {
     }
 }
 
+/**
+ * Profile directory from the OS account database (GetUserProfileDirectory on Windows),
+ * NOT os.homedir(), which reads the attacker-influenceable USERPROFILE variable.
+ */
+function accountHomedir(): string {
+    try {
+        return os.userInfo().homedir || '';
+    } catch {
+        return '';
+    }
+}
+
 function defaultContext(): ResolveContext {
-    return { platform: process.platform, env: process.env, exists: fileExists };
+    return { platform: process.platform, env: process.env, exists: fileExists, homedir: accountHomedir() };
 }
 
 function pathApi(platform: NodeJS.Platform) {
@@ -53,20 +65,32 @@ function pathApi(platform: NodeJS.Platform) {
  * attacker-influenceable and cannot prove a drive is a local, OS-controlled one
  * (mapped network, subst and user-created drives all look the same), so they are
  * ignored. Machines with a non-C: system drive are not supported by the automatic
- * lookup; they get the actionable "install for all users" message instead.
+ * lookup; they get an explicit "unsupported" message instead (see notFoundMessage).
  *
  * The only per-user location is %LOCALAPPDATA%\Microsoft\WindowsApps\winget.exe. It is
- * derived from the profile directory (os.homedir()), never from LOCALAPPDATA alone,
- * and only when LOCALAPPDATA equals it and the profile is C:\Users\<single real segment>.
+ * derived from the account's profile directory (os.userInfo().homedir, not USERPROFILE),
+ * and only when LOCALAPPDATA equals it and the profile is C:\Users\<one safe segment>.
  */
-const RESERVED_PROFILES = new Set(['.', '..', 'public', 'default', 'default user', 'all users']);
+const RESERVED_PROFILES = new Set(['public', 'default', 'default user', 'all users']);
 
-function winRoots(env: NodeJS.ProcessEnv, homedir: string = os.homedir()) {
+/**
+ * Profile folder name allow-list. The Win32 API ignores trailing dots/spaces and accepts
+ * 8.3 short names, so "Public.", "Public " and "PUBLIC~1" all alias the world-writable
+ * C:\Users\Public. Reject those, then compare reserved names after stripping.
+ */
+function isSafeProfileSegment(seg: string): boolean {
+    if (!/^[A-Za-z0-9_][A-Za-z0-9_. -]*$/.test(seg)) return false; // also rejects ~ : \ / and leading . or space
+    if (/[. ]$/.test(seg)) return false;
+    return !RESERVED_PROFILES.has(seg.replace(/[. ]+$/, '').toLowerCase());
+}
+
+function winRoots(env: NodeJS.ProcessEnv, homedir: string = accountHomedir()) {
     const w = nodePath.win32;
-    const m = /^C:\\Users\\([^\\/:]+)$/i.exec(homedir.replace(/[\\/]+$/, ''));
+    const home = homedir.replace(/[\\/]+$/, '');
+    const m = /^C:\\Users\\([^\\/]+)$/i.exec(home);
     let localAppData: string | undefined;
-    if (m && !RESERVED_PROFILES.has(m[1].toLowerCase())) {
-        const derived = w.join(homedir.replace(/[\\/]+$/, ''), 'AppData', 'Local');
+    if (m && isSafeProfileSegment(m[1])) {
+        const derived = w.join(home, 'AppData', 'Local');
         const fromEnv = env['LOCALAPPDATA'];
         if (fromEnv && !/(^|[\\/])\.{1,2}([\\/]|$)/.test(fromEnv) && w.normalize(fromEnv).toLowerCase() === derived.toLowerCase()) {
             localAppData = derived;
@@ -198,13 +222,44 @@ export function getLookupTool(ctx: ResolveContext = defaultContext()): string {
         : '/usr/bin/which';
 }
 
+const TOOL_LABEL: Record<ToolName, string> = {
+    powershell: 'Windows PowerShell (powershell.exe)',
+    pwsh: 'PowerShell 7 (pwsh)',
+    winget: 'winget',
+    choco: 'Chocolatey',
+    az: 'Azure CLI',
+    brew: 'Homebrew',
+    bash: 'bash',
+};
+
+/** True when Windows is not on C: (or C:\Windows\System32 is missing): auto-detection is unsupported. */
+export function isUnsupportedWindowsLayout(ctx: ResolveContext = defaultContext()): boolean {
+    if (ctx.platform !== 'win32') return false;
+    const drive = (ctx.env['SystemDrive'] || ctx.env['SystemRoot'] || 'C:').slice(0, 2).toUpperCase(); // message only, never trust
+    return drive !== 'C:' || !ctx.exists('C:\\Windows\\System32');
+}
+
 /**
- * Actionable message for when a tool is not available in a trusted location.
- * Per-user installs (e.g. under %LOCALAPPDATA% or ~/.local/bin) are deliberately
- * not accepted because those folders are writable by the launching user.
+ * Actionable, platform-appropriate message for when a tool is not available in a trusted
+ * location. Per-user installs are deliberately not accepted because those folders are
+ * writable by the launching user. Never includes caller-supplied paths.
  */
-export function notFoundMessage(tool: ToolName): string {
-    return `${tool} was not found in a trusted system location. Install it for all users (for example under C:\\Program Files on Windows, or via Homebrew / the system package manager elsewhere) and restart the app.`;
+export function notFoundMessage(tool: ToolName, ctx: ResolveContext = defaultContext()): string {
+    const label = TOOL_LABEL[tool];
+    if (ctx.platform === 'win32') {
+        if (isUnsupportedWindowsLayout(ctx)) {
+            return `${label} could not be located: automatic detection is not supported when Windows is not installed on C: (expected C:\\Windows\\System32). Run the app on a standard Windows layout or contact your administrator.`;
+        }
+        return `${label} was not found in a trusted system location. Install it for all users (for example under C:\\Program Files) and restart the app.`;
+    }
+    return `${label} was not found in a trusted system location. Install it with Homebrew or your system package manager (into /usr/bin, /usr/local/bin or /opt/homebrew/bin) and restart the app.`;
+}
+
+/**
+ * cmd.exe metacharacters that must not appear in a path launched through a shell.
+ */
+export function isCmdSafePath(p: string): boolean {
+    return !/[%&^!"<>|\r\n]/.test(p);
 }
 
 /**

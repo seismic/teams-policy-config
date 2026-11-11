@@ -5,6 +5,7 @@ import path from 'node:path';
 import {
     getLookupTool,
     getTrustedShell,
+    isCmdSafePath,
     getTrustedCwd,
     getToolCandidates,
     resolveTrustedTool,
@@ -187,7 +188,7 @@ export async function runPowerShell(
     }
 
     if (lastError) throw lastError;
-    const notFound = new Error(notFoundMessage('pwsh')) as NodeJS.ErrnoException;
+    const notFound = new Error(notFoundMessage(isWindows ? 'powershell' : 'pwsh')) as NodeJS.ErrnoException;
     notFound.code = 'ENOENT';
     throw notFound;
 }
@@ -281,6 +282,10 @@ export async function isAzCliInstalled(log?: ProgressLogger): Promise<boolean> {
         // cmd.exe via shell:true. When using shell:true, quote the path so that spaces
         // in "C:\Program Files\..." are not split by cmd.exe (same pattern as powershell.ts).
         const isCmdScript = isWindows && azPath.toLowerCase().endsWith('.cmd');
+        if (isCmdScript && !isCmdSafePath(azPath)) {
+            log?.('Azure CLI path contains characters that are unsafe for cmd.exe; refusing to run it.');
+            return false;
+        }
         const probeExe = isCmdScript ? `"${azPath}"` : azPath;
         await execFileAsync(probeExe, ['--version'], {
             cwd: getSafeCwd(),
