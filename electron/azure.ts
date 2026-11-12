@@ -5,6 +5,7 @@ import {
   resolveAzCliPath,
   withCommonCliPath,
 } from './util/os-util';
+import { notFoundMessage } from './util/trusted-exec';
 import { runCommandWithLiveLogs } from './util/powershell';
 
 /**
@@ -25,7 +26,7 @@ export async function runAzLogin(log?: ProgressLogger): Promise<{
   // so every spawn uses a fully-qualified path with no PATH/cwd search.
   const azPath = await resolveAzCliPath();
   if (!azPath) {
-    const notFound = new Error('Azure CLI was not found.') as NodeJS.ErrnoException;
+    const notFound = new Error(notFoundMessage('az')) as NodeJS.ErrnoException;
     notFound.code = 'ENOENT';
     throw notFound;
   }

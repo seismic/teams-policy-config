@@ -2,7 +2,16 @@ import { promisify } from 'node:util';
 import { execFile } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
-import { app } from 'electron';
+import {
+    getLookupTool,
+    getTrustedShell,
+    isCmdSafePath,
+    getTrustedCwd,
+    getToolCandidates,
+    resolveTrustedTool,
+    notFoundMessage,
+    validateLookupResult,
+} from './trusted-exec';
 
 const execFileAsync = promisify(execFile);
 
@@ -16,16 +25,23 @@ export type PowerShellCommandResult = {
     stderr: string;
 };
 
+/**
+ * Absolute, trusted PowerShell executables in preference order. Bare names are
+ * never returned (MTGINGEST-5917): only files that exist in system-controlled
+ * locations are launched.
+ */
 export function getPowerShellExecutables(): string[] {
-    return isWindows
-        ? ['powershell.exe', 'pwsh.exe', 'pwsh']
-        : ['pwsh', 'powershell'];
+    const tools = isWindows ? (['powershell', 'pwsh'] as const) : (['pwsh'] as const);
+    const found: string[] = [];
+    for (const tool of tools) {
+        const resolved = resolveTrustedTool(tool);
+        if (resolved) found.push(resolved);
+    }
+    return found;
 }
 
 export function getAzCliExecutables(): string[] {
-    return isWindows
-        ? ['az.cmd', 'az.exe', 'az']
-        : ['az', '/opt/homebrew/bin/az', '/usr/local/bin/az'];
+    return getToolCandidates('az');
 }
 
 /**
@@ -48,45 +64,18 @@ export function withCommonCliPath(env: NodeJS.ProcessEnv = process.env): NodeJS.
 
     return {
         ...env,
-        PATH: combinedPath
+        PATH: combinedPath,
+        // Defence in depth: stop Windows child tools from searching cwd for executables.
+        ...(isWindows ? { NoDefaultCurrentDirectoryInExePath: '1' } : {})
     };
 }
 
 /**
- * Returns a controlled, non-attacker-writable working directory for child
- * processes (the app directory) instead of process.cwd().
- *
- * For a packaged Electron app, process.cwd() can be an arbitrary directory the
- * OS happened to launch the app from. On Windows, spawning through a shell with
- * an unqualified command name resolves it from the cwd first, so a cwd an
- * attacker can write to enables a binary hijack (scan finding 1352217). Pinning
- * the cwd to the read-only app directory removes that vector.
- *
- * In packaged builds, app.getAppPath() returns a path ending in `.asar`
- * (e.g. /Applications/MyApp.app/Contents/Resources/app.asar). Electron's
- * virtual FS treats it as a directory, but Node's spawn hits the real OS
- * filesystem and gets ENOTDIR. Use the parent (Resources/) directory instead.
+ * Pinned, trusted working directory for every child process. Never the process working directory:
+ * an attacker-writable launch directory must not influence executable lookup.
  */
 export function getSafeCwd(): string {
-    try {
-        const appPath = app.getAppPath();
-        return appPath.endsWith('.asar') ? path.dirname(appPath) : appPath;
-    } catch {
-        return process.cwd();
-    }
-}
-
-function azCandidatePaths(): string[] {
-    if (isWindows) {
-        const programFiles = process.env['ProgramFiles'] || 'C:\\Program Files';
-        const programFilesX86 = process.env['ProgramFiles(x86)'] || 'C:\\Program Files (x86)';
-        return [
-            path.join(programFiles, 'Microsoft SDKs', 'Azure', 'CLI2', 'wbin', 'az.cmd'),
-            path.join(programFilesX86, 'Microsoft SDKs', 'Azure', 'CLI2', 'wbin', 'az.cmd'),
-        ];
-    }
-
-    return ['/opt/homebrew/bin/az', '/usr/local/bin/az', '/usr/bin/az'];
+    return getTrustedCwd();
 }
 
 /**
@@ -105,32 +94,34 @@ let cachedAzCliPath: string | null = null;
 
 async function resolveAzCliViaSystemLookup(): Promise<string | null> {
     try {
-        if (isWindows) {
-            const systemRoot = process.env['SystemRoot'] || 'C:\\Windows';
-            const whereExe = path.join(systemRoot, 'System32', 'where.exe');
-            const { stdout } = await execFileAsync(whereExe, ['az'], { env: withCommonCliPath() });
-            const first = stdout.split(/\r?\n/).map((line) => line.trim()).find(Boolean);
-            return first && path.isAbsolute(first) && fs.existsSync(first) ? first : null;
+        // Lookup tool is absolute and runs from a pinned cwd so the launch dir is never searched.
+        const { stdout } = await execFileAsync(getLookupTool(), ['az'], {
+            cwd: getSafeCwd(),
+            env: withCommonCliPath()
+        });
+        // Accept only results inside trusted install locations; anything else
+        // (planted az.exe/az.cmd/az.bat in cwd or user-writable dirs) is ignored.
+        for (const line of stdout.split(/\r?\n/)) {
+            const valid = validateLookupResult(line.trim());
+            if (valid) return valid;
         }
-
-        const { stdout } = await execFileAsync('/usr/bin/which', ['az'], { env: withCommonCliPath() });
-        const first = stdout.split(/\r?\n/).map((line) => line.trim()).find(Boolean);
-        return first && path.isAbsolute(first) && fs.existsSync(first) ? first : null;
+        return null;
     } catch {
         return null;
     }
 }
 
 export async function resolveAzCliPath(): Promise<string | null> {
-    if (cachedAzCliPath && fs.existsSync(cachedAzCliPath)) {
+    // Re-validate the cache so only trusted, still-existing paths are ever reused.
+    if (cachedAzCliPath && validateLookupResult(cachedAzCliPath)) {
         return cachedAzCliPath;
     }
+    cachedAzCliPath = null;
 
-    for (const candidate of azCandidatePaths()) {
-        if (path.isAbsolute(candidate) && fs.existsSync(candidate)) {
-            cachedAzCliPath = candidate;
-            return candidate;
-        }
+    const known = resolveTrustedTool('az');
+    if (known) {
+        cachedAzCliPath = known;
+        return known;
     }
 
     const resolved = await resolveAzCliViaSystemLookup();
@@ -149,16 +140,30 @@ export async function resolveAzCliPath(): Promise<string | null> {
  * @returns Command output details including executable, stdout, and stderr.
  * @throws An error if no PowerShell executable is found or if execution fails for reasons other than missing executable.
  */
-export async function runPowerShell(script: string, log?: ProgressLogger, completeMessage?: string): Promise<PowerShellCommandResult> {
+export async function runPowerShell(
+    script: string,
+    log?: ProgressLogger,
+    completeMessage?: string,
+    options?: { env?: Record<string, string> }
+): Promise<PowerShellCommandResult> {
     const executables = getPowerShellExecutables();
+    // Pass the already-validated Azure CLI path to the script as DATA so scripts never
+    // search PATH for az (MTGINGEST-5916). Caller-supplied env is data too (see #13).
+    const azPath = await resolveAzCliPath();
+    const childEnv: NodeJS.ProcessEnv = {
+        ...withCommonCliPath(),
+        ...(options?.env ?? {}),
+        // Always set (empty when unresolved) so an inherited or caller-supplied value can never reach the script.
+        TPC_AZ_CLI: azPath ?? ''
+    };
 
     let lastError: unknown;
     for (const executable of executables) {
         try {
             // log?.(`Running PowerShell via ${executable}...`);
             const { stdout, stderr } = await execFileAsync(executable, ['-NoProfile', '-Command', script], {
-                cwd: process.cwd(),
-                env: withCommonCliPath()
+                cwd: getSafeCwd(),
+                env: childEnv
             });
 
             if (completeMessage) {
@@ -182,7 +187,10 @@ export async function runPowerShell(script: string, log?: ProgressLogger, comple
         }
     }
 
-    throw lastError ?? new Error('PowerShell executable was not found.');
+    if (lastError) throw lastError;
+    const notFound = new Error(notFoundMessage(isWindows ? 'powershell' : 'pwsh')) as NodeJS.ErrnoException;
+    notFound.code = 'ENOENT';
+    throw notFound;
 }
 
 /**
@@ -236,7 +244,7 @@ export async function isPowerShellInstalled(log?: ProgressLogger): Promise<boole
     for (const executable of executables) {
         try {
             await execFileAsync(executable, ['-NoProfile', '-Command', '$PSVersionTable.PSVersion.ToString()'], {
-                cwd: process.cwd(),
+                cwd: getSafeCwd(),
                 env: withCommonCliPath()
             });
             log?.(`Detected PowerShell executable: ${executable}`);
@@ -265,7 +273,7 @@ export async function isAzCliInstalled(log?: ProgressLogger): Promise<boolean> {
     // vulnerable to a working-directory binary hijack (scan finding 1352217).
     const azPath = await resolveAzCliPath();
     if (!azPath) {
-        log?.('Azure CLI was not found in the expected locations or on PATH.');
+        log?.(notFoundMessage('az'));
         return false;
     }
 
@@ -274,11 +282,16 @@ export async function isAzCliInstalled(log?: ProgressLogger): Promise<boolean> {
         // cmd.exe via shell:true. When using shell:true, quote the path so that spaces
         // in "C:\Program Files\..." are not split by cmd.exe (same pattern as powershell.ts).
         const isCmdScript = isWindows && azPath.toLowerCase().endsWith('.cmd');
+        if (isCmdScript && !isCmdSafePath(azPath)) {
+            log?.('Azure CLI path contains characters that are unsafe for cmd.exe; refusing to run it.');
+            return false;
+        }
         const probeExe = isCmdScript ? `"${azPath}"` : azPath;
         await execFileAsync(probeExe, ['--version'], {
             cwd: getSafeCwd(),
             env: withCommonCliPath(),
-            shell: isCmdScript,
+            // Explicit cmd.exe path: never trust the ComSpec environment variable.
+            shell: isCmdScript ? getTrustedShell() : false,
         });
         log?.(`Detected Azure CLI executable: ${azPath}`);
         return true;

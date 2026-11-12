@@ -1,4 +1,5 @@
 import { spawn } from 'node:child_process';
+import { getTrustedCwd, getTrustedShell, isCmdSafePath, isTrustedPath } from './trusted-exec';
 import {
   ProgressLogger,
 } from './os-util';
@@ -22,7 +23,19 @@ export async function runCommandWithLiveLogs(
     timeoutMs?: number;
   }
 ): Promise<{ stdout: string; stderr: string }> {
-  const { cwd, env, log, timeoutMs = 0 } = options;
+  // The working directory is always the pinned trusted one; options.cwd is accepted for
+  // compatibility but never used, so no caller can reintroduce an attacker-writable cwd.
+  const { env, log, timeoutMs = 0 } = options;
+
+  if (!isTrustedPath(executable) || (process.platform === 'win32' && !isCmdSafePath(executable))) {
+    // Never launch by bare name, UNC path or an untrusted location (MTGINGEST-5916/5917).
+    // The rejected path is logged, not put in the user-facing error message.
+    // JSON.stringify escapes CR/LF and other control characters so a hostile path cannot forge log lines.
+    log?.(`Refused to launch executable outside trusted locations: ${JSON.stringify(executable)}`);
+    const err = new Error('Refusing to run an executable outside trusted system locations.') as NodeJS.ErrnoException;
+    err.code = 'EINVAL';
+    return Promise.reject(err);
+  }
 
   return new Promise((resolve, reject) => {
     // Windows needs a shell to run the Azure CLI's `.cmd` wrapper, but shell:true does
@@ -34,10 +47,11 @@ export async function runCommandWithLiveLogs(
     const spawnExecutable = useWindowsShell ? `"${executable}"` : executable;
 
     const child = spawn(spawnExecutable, args, {
-      cwd,
+      cwd: getTrustedCwd(),
       env,
       stdio: ['ignore', 'pipe', 'pipe'],
-      shell: useWindowsShell
+      // Explicit cmd.exe path: never trust the ComSpec environment variable.
+      shell: useWindowsShell ? getTrustedShell() : false
     });
 
     let stdout = '';
