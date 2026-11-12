@@ -11,7 +11,7 @@ through `electron/util/trusted-exec.ts`. See MTGINGEST-5916 / MTGINGEST-5917.
   `%LOCALAPPDATA%\Microsoft\WindowsApps`, `C:\ProgramData\chocolatey\bin\choco.exe` (only as safe
   as that folder's ACL), `/usr/local/bin`, `/opt/homebrew/bin`, Linuxbrew).
 - Roots are fixed. Environment variables such as `ProgramFiles`, `SystemRoot` and `ComSpec` are not
-  trusted. The profile directory comes from the OS account database (`os.userInfo().homedir`, not `os.homedir()`, which reads the `USERPROFILE` variable) and must be `C:\Users\<one name>`. The name is allow-listed (`A-Z a-z 0-9 _ . - space`), may not end in a dot or space, may not contain `~`, and may not be `Public`, `Default`, `Default User` or `All Users` (compared after stripping trailing dots/spaces, since Windows treats `Public.` as `Public`).
+  trusted. The profile directory comes from the OS account database (`os.userInfo().homedir`, not `os.homedir()`, which reads the `USERPROFILE` variable) and must be `C:\Users\<one name>`. The name is allow-listed (`A-Z a-z 0-9 _ . - space`), may not start with a dot or space, may not end in a dot or space, may not contain `~`, and may not be `Public`, `Default`, `Default User` or `All Users` (compared after stripping trailing dots/spaces, since Windows treats `Public.` as `Public`).
 - Child processes run with a pinned cwd (`System32` / `/`), and `cmd.exe` is `C:\Windows\System32\cmd.exe`.
 - PowerShell scripts receive the validated Azure CLI path as `$env:TPC_AZ_CLI` (empty when
   unresolved). Scripts never search PATH for `az`.
@@ -37,7 +37,8 @@ restart the app. The app's not-found message says the same.
   name or folder.
 
 ## Windows notes
-- Launches through `cmd.exe` (`az.cmd`) are refused if the path contains `% & ^ ! " < > |`.
+- Launches through `cmd.exe` (`az.cmd`) are refused if the path contains `% & ^ ! " < > |` or a CR/LF.
+- A refused executable path is logged JSON-escaped (so control characters cannot forge log lines) and is not included in the error message.
 - Windows on a drive other than `C:` (or without `C:\Windows\System32`) gets an explicit
   "automatic detection is not supported" message.
 

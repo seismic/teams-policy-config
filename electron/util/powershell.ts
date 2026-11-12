@@ -30,7 +30,8 @@ export async function runCommandWithLiveLogs(
   if (!isTrustedPath(executable) || (process.platform === 'win32' && !isCmdSafePath(executable))) {
     // Never launch by bare name, UNC path or an untrusted location (MTGINGEST-5916/5917).
     // The rejected path is logged, not put in the user-facing error message.
-    log?.(`Refused to launch executable outside trusted locations: ${executable}`);
+    // JSON.stringify escapes CR/LF and other control characters so a hostile path cannot forge log lines.
+    log?.(`Refused to launch executable outside trusted locations: ${JSON.stringify(executable)}`);
     const err = new Error('Refusing to run an executable outside trusted system locations.') as NodeJS.ErrnoException;
     err.code = 'EINVAL';
     return Promise.reject(err);

@@ -259,6 +259,51 @@ describe('cmd.exe metacharacters and error text', () => {
     expect(err.message).not.toContain('/tmp/secret-evil');
     expect(logs.join('\n')).toContain('/tmp/secret-evil/az');
   });
+  it('escapes control characters so a hostile path cannot forge log lines', async () => {
+    const { runCommandWithLiveLogs } = await import('../util/powershell');
+    const logs: string[] = [];
+    await runCommandWithLiveLogs('/tmp/x\nFORGED: login ok\r\n', [], { cwd: '/', log: (m) => logs.push(m) }).catch(() => undefined);
+    expect(logs).toHaveLength(1);
+    expect(logs[0]).not.toMatch(/[\r\n]/);
+    expect(logs[0]).toContain('\\n');
+  });
+
+  describe('isCmdSafePath is actually applied before shell launches', () => {
+    const origPlatform = Object.getOwnPropertyDescriptor(process, 'platform')!;
+    const evil = 'C:\\Program Files\\a&b\\az.cmd'; // trusted root, but cmd.exe metacharacter
+    afterEach(() => {
+      Object.defineProperty(process, 'platform', origPlatform);
+      vi.restoreAllMocks();
+    });
+
+    it('source guard: both launchers call isCmdSafePath before their shell launch', () => {
+      const strip = (t: string) => t.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '');
+      const ps = strip(fs.readFileSync(path.resolve(__dirname, '..', 'util', 'powershell.ts'), 'utf8'));
+      const osu = strip(fs.readFileSync(path.resolve(__dirname, '..', 'util', 'os-util.ts'), 'utf8'));
+      expect(ps.indexOf('isCmdSafePath(')).toBeGreaterThan(-1);
+      expect(ps.indexOf('isCmdSafePath(')).toBeLessThan(ps.indexOf('spawn('));
+      expect(osu.indexOf('isCmdSafePath(')).toBeGreaterThan(-1);
+      expect(osu.indexOf('isCmdSafePath(')).toBeLessThan(osu.indexOf('execFileAsync(probeExe'));
+    });
+
+    it('runCommandWithLiveLogs rejects a trusted-root path containing cmd metacharacters (win32)', async () => {
+      Object.defineProperty(process, 'platform', { value: 'win32' });
+      const { runCommandWithLiveLogs } = await import('../util/powershell');
+      await expect(runCommandWithLiveLogs(evil, ['--version'], { cwd: 'C:\\Windows\\System32' })).rejects.toMatchObject({ code: 'EINVAL' });
+    });
+
+    it('isAzCliInstalled refuses to launch an az.cmd path containing cmd metacharacters (win32)', async () => {
+      vi.resetModules();
+      execFileMock.mockReset();
+      vi.spyOn(fs, 'existsSync').mockImplementation((p) => String(p) === evil);
+      vi.spyOn(fs, 'lstatSync').mockImplementation(((p: any) => { if (String(p) === evil) return {} as any; throw new Error('ENOENT'); }) as any);
+      execFileMock.mockImplementation(async (file: string) => (/where\.exe$/i.test(file) ? { stdout: `${evil}\r\n`, stderr: '' } : { stdout: '1', stderr: '' }));
+      Object.defineProperty(process, 'platform', { value: 'win32' });
+      const os2 = await import('../util/os-util');
+      expect(await os2.isAzCliInstalled()).toBe(false);
+      expect(execFileMock.mock.calls.some((c) => String(c[0]).includes('a&b'))).toBe(false);
+    });
+  });
 });
 
 describe('user-writable locations only trusted as exact candidates', () => {
