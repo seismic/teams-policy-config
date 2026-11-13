@@ -1,7 +1,8 @@
 /// <reference types="node" />
 import './env';
 import { PowerShellCommandResult, ProgressLogger, runPowerShell } from './util/os-util';
-import { assertGroupId, assertPolicyName, psSingleQuote } from './util/validate';
+import { assertEmail, assertGroupId, isValidGuid, assertPolicyName, psSingleQuote } from './util/validate';
+import { AZ_LIST_LIMIT, buildEmailLookupScript, buildGroupSearchScripts, buildUserSearchScripts, toSafePage } from './util/search-scripts';
 
 type AccessPolicy = {
     Identity?: string;
@@ -36,8 +37,6 @@ export interface UserAndGroupListResult {
     usersTotal: number;
     groupsTotal: number;
 }
-
-const AZ_LIST_LIMIT = 10;
 
 function getTeamsAppId(log?: ProgressLogger): string {
     const appId = process.env.VITE_APP_ID?.trim();
@@ -256,14 +255,12 @@ export async function grantPolicy(log: ProgressLogger, policyName: string, group
  * @param log Logger to track the progress of the command execution.
  * @returns A promise that resolves with an array of user objects containing Id, DisplayName, and UserPrincipalName.
  */
-export async function getUserList(log: ProgressLogger, searchText?: string): Promise<User[] | null> {
+export async function getUserList(log: ProgressLogger): Promise<User[] | null> {
     log('Retrieving list of Azure users...');
 
-    const trimmedSearchText = searchText?.trim();
-    const escapedSearchText = trimmedSearchText ? trimmedSearchText.replace(/'/g, "''") : '';
-    const usersCommand = trimmedSearchText
-        ? `& $azCli ad user list --filter "startswith(displayName,'${escapedSearchText}')" --query "[].{Id:id, DisplayName:displayName, UserPrincipalName:userPrincipalName} | [0:${AZ_LIST_LIMIT}]" --output json`
-        : `& $azCli ad user list --query "[].{Id:id, DisplayName:displayName, UserPrincipalName:userPrincipalName} | [0:${AZ_LIST_LIMIT}]" --output json`;
+    // No caller-supplied text is ever placed in an `az` argument or script here
+    // (`az` is az.cmd on Windows); filtering belongs in the search* functions.
+    const usersCommand = `& $azCli ad user list --query "[].{Id:id, DisplayName:displayName, UserPrincipalName:userPrincipalName} | [0:${AZ_LIST_LIMIT}]" --output json`;
     const script = withAzCliCheck([
         `$groupsJson = & $azCli ad group list --query "[].{Id:id, DisplayName:displayName} | [0:${AZ_LIST_LIMIT}]" --output json`,
         `$usersJson = ${usersCommand}`,
@@ -302,49 +299,21 @@ export async function getUserList(log: ProgressLogger, searchText?: string): Pro
  * @returns A promise that resolves with matching users.
  */
 export async function searchUsers(log: ProgressLogger, searchText: string, page: number = 0): Promise<UserSearchResult> {
-    const trimmedSearchText = searchText?.trim() || '';
-    const safePage = Number.isFinite(page) && page >= 0 ? Math.floor(page) : 0;
-    const startIndex = safePage * AZ_LIST_LIMIT;
-    const endIndex = startIndex + AZ_LIST_LIMIT;
+    // Builds scripts that carry the search text as data (env var), never as source.
+    const trimmedSearchText = typeof searchText === 'string' ? searchText.trim() : '';
+    const safePage = toSafePage(page);
+    const { page: pageScript, total: totalScript } = buildUserSearchScripts(searchText, safePage);
 
     log(`Searching Azure users for: "${trimmedSearchText || '<all>'}" (page ${safePage + 1})`);
 
-    const escapedSearchText = trimmedSearchText.replace(/'/g, "''");
-    const usersScript = trimmedSearchText
-        ? withAzCliCheck([
-            `$searchText = '${escapedSearchText}'.ToLower()`,
-            `$usersJson = & $azCli ad user list --query "[].{Id:id, DisplayName:displayName, UserPrincipalName:userPrincipalName}" --output json`,
-            '$allUsers = if ($usersJson) { $usersJson | ConvertFrom-Json } else { @() }',
-            '$filteredUsers = @($allUsers | Where-Object {',
-            '    ($_.DisplayName -and $_.DisplayName.ToLower().Contains($searchText)) -or ($_.UserPrincipalName -and $_.UserPrincipalName.ToLower().Contains($searchText))',
-            '})',
-            `$pagedUsers = @($filteredUsers | Select-Object -Skip ${startIndex} -First ${AZ_LIST_LIMIT})`,
-            'if (@($pagedUsers).Count -eq 0) { Write-Output "[]" } else { @($pagedUsers) | ConvertTo-Json -Depth 5 -Compress }'
-        ])
-        : withAzCliCheck([
-            `& $azCli ad user list --query "[].{Id:id, DisplayName:displayName, UserPrincipalName:userPrincipalName} | [${startIndex}:${endIndex}]" --output json`
-        ]);
-    const totalCountScript = trimmedSearchText
-        ? withAzCliCheck([
-            `$searchText = '${escapedSearchText}'.ToLower()`,
-            `$usersJson = & $azCli ad user list --query "[].{Id:id, DisplayName:displayName, UserPrincipalName:userPrincipalName}" --output json`,
-            '$allUsers = if ($usersJson) { $usersJson | ConvertFrom-Json } else { @() }',
-            '$filteredUsers = @($allUsers | Where-Object {',
-            '    ($_.DisplayName -and $_.DisplayName.ToLower().Contains($searchText)) -or ($_.UserPrincipalName -and $_.UserPrincipalName.ToLower().Contains($searchText))',
-            '})',
-            'Write-Output @($filteredUsers).Count'
-        ])
-        : withAzCliCheck([
-            `$usersJson = & $azCli ad user list --query "[].{Id:id, DisplayName:displayName, UserPrincipalName:userPrincipalName}" --output json`,
-            '$users = if ($usersJson) { $usersJson | ConvertFrom-Json } else { @() }',
-            'Write-Output @($users).Count'
-        ]);
+    const usersScript = withAzCliCheck(pageScript.commands);
+    const totalCountScript = withAzCliCheck(totalScript.commands);
 
-    const usersResult = await runPowerShell(usersScript, log, 'Azure user search completed successfully.');
+    const usersResult = await runPowerShell(usersScript, log, 'Azure user search completed successfully.', { env: pageScript.env });
     const parsed = parseJsonFromPowerShellOutput<User[] | User>(usersResult.stdout, log);
     const users = normalizeUsers(parsed);
 
-    const totalCountResult = await runPowerShell(totalCountScript, log, 'Azure user search total count retrieved successfully.');
+    const totalCountResult = await runPowerShell(totalCountScript, log, 'Azure user search total count retrieved successfully.', { env: totalScript.env });
     const parsedTotalCount = Number.parseInt(totalCountResult.stdout.trim(), 10);
     const total = Number.isNaN(parsedTotalCount) ? users.length : parsedTotalCount;
 
@@ -358,36 +327,16 @@ export async function searchUsers(log: ProgressLogger, searchText: string, page:
  * @returns A promise that resolves with matched users.
  */
 export async function searchUsersByEmails(log: ProgressLogger, emails: string[]): Promise<User[]> {
-    const normalizedEmails = (Array.isArray(emails) ? emails : [])
-        .map((email) => String(email || '').trim())
-        .filter((email) => email.length > 0);
-
-    if (normalizedEmails.length === 0) {
+    // Validates every email (throws on the first invalid one) before any script is built.
+    const lookup = buildEmailLookupScript(emails);
+    if (!lookup) {
         return [];
     }
 
-    const uniqueEmails = Array.from(new Set(normalizedEmails.map((email) => email.toLowerCase())));
-    const emailList = uniqueEmails
-        .map((email) => `'${email.replace(/'/g, "''")}'`)
-        .join(', ');
+    log(`Resolving Azure users by email from CSV. Count: ${lookup.emails.length}`);
+    log(`Emails to resolve: ${lookup.emails.join(', ')}`);
 
-    log(`Resolving Azure users by email from CSV. Count: ${uniqueEmails.length}`);
-    log(`Emails to resolve: ${uniqueEmails.join(', ')}`);
-
-    const script = withAzCliCheck([
-        `$targetEmails = @(${emailList})`,
-        '$users = @()',
-        'foreach ($email in $targetEmails) {',
-        '  $userJson = & $azCli ad user show --id $email --query "{Id:id, DisplayName:displayName, UserPrincipalName:userPrincipalName}" --output json 2>$null',
-        '  if ($LASTEXITCODE -eq 0 -and $userJson) {',
-        '    try {',
-        '      $userObj = $userJson | ConvertFrom-Json',
-        '      if ($userObj) { $users += $userObj }',
-        '    } catch { }',
-        '  }',
-        '}',
-        'if (@($users).Count -eq 0) { Write-Output "[]" } else { @($users) | ConvertTo-Json -Depth 5 -Compress }'
-    ]);
+    const script = withAzCliCheck(lookup.commands);
 
     const result = await runPowerShell(script, log, 'Azure users resolved by email successfully.');
     log(`Search users by emails output: ${result.stdout.trim()}`);
@@ -403,45 +352,20 @@ export async function searchUsersByEmails(log: ProgressLogger, emails: string[])
  * @returns A promise that resolves with matching groups and total count.
  */
 export async function searchGroups(log: ProgressLogger, searchText: string, page: number = 0): Promise<GroupSearchResult> {
-    const trimmedSearchText = searchText?.trim() || '';
-    const safePage = Number.isFinite(page) && page >= 0 ? Math.floor(page) : 0;
-    const startIndex = safePage * AZ_LIST_LIMIT;
-    const endIndex = startIndex + AZ_LIST_LIMIT;
+    const trimmedSearchText = typeof searchText === 'string' ? searchText.trim() : '';
+    const safePage = toSafePage(page);
+    const { page: pageScript, total: totalScript } = buildGroupSearchScripts(searchText, safePage);
 
     log(`Searching Azure groups for: "${trimmedSearchText || '<all>'}" (page ${safePage + 1})`);
 
-    const escapedSearchText = trimmedSearchText.replace(/'/g, "''");
-    const groupsScript = trimmedSearchText
-        ? withAzCliCheck([
-            `$searchText = '${escapedSearchText}'.ToLower()`,
-            `$groupsJson = & $azCli ad group list --query "[].{Id:id, DisplayName:displayName}" --output json`,
-            '$allGroups = if ($groupsJson) { $groupsJson | ConvertFrom-Json } else { @() }',
-            '$filteredGroups = @($allGroups | Where-Object { $_.DisplayName -and $_.DisplayName.ToLower().Contains($searchText) })',
-            `$pagedGroups = @($filteredGroups | Select-Object -Skip ${startIndex} -First ${AZ_LIST_LIMIT})`,
-            'if (@($pagedGroups).Count -eq 0) { Write-Output "[]" } else { @($pagedGroups) | ConvertTo-Json -Depth 5 -Compress }'
-        ])
-        : withAzCliCheck([
-            `& $azCli ad group list --query "[].{Id:id, DisplayName:displayName} | [${startIndex}:${endIndex}]" --output json`
-        ]);
-    const totalCountScript = trimmedSearchText
-        ? withAzCliCheck([
-            `$searchText = '${escapedSearchText}'.ToLower()`,
-            `$groupsJson = & $azCli ad group list --query "[].{Id:id, DisplayName:displayName}" --output json`,
-            '$allGroups = if ($groupsJson) { $groupsJson | ConvertFrom-Json } else { @() }',
-            '$filteredGroups = @($allGroups | Where-Object { $_.DisplayName -and $_.DisplayName.ToLower().Contains($searchText) })',
-            'Write-Output @($filteredGroups).Count'
-        ])
-        : withAzCliCheck([
-            `$groupsJson = & $azCli ad group list --query "[].{Id:id, DisplayName:displayName}" --output json`,
-            '$groups = if ($groupsJson) { $groupsJson | ConvertFrom-Json } else { @() }',
-            'Write-Output @($groups).Count'
-        ]);
+    const groupsScript = withAzCliCheck(pageScript.commands);
+    const totalCountScript = withAzCliCheck(totalScript.commands);
 
-    const groupsResult = await runPowerShell(groupsScript, log, 'Azure group search completed successfully.');
+    const groupsResult = await runPowerShell(groupsScript, log, 'Azure group search completed successfully.', { env: pageScript.env });
     const parsed = parseJsonFromPowerShellOutput<Group[] | Group>(groupsResult.stdout, log);
     const groups = normalizeGroups(parsed);
 
-    const totalCountResult = await runPowerShell(totalCountScript, log, 'Azure group search total count retrieved successfully.');
+    const totalCountResult = await runPowerShell(totalCountScript, log, 'Azure group search total count retrieved successfully.', { env: totalScript.env });
     const parsedTotalCount = Number.parseInt(totalCountResult.stdout.trim(), 10);
     const total = Number.isNaN(parsedTotalCount) ? groups.length : parsedTotalCount;
 
@@ -479,15 +403,10 @@ export async function getAllGroups(log: ProgressLogger): Promise<any[] | null> {
     }
 }
 
-export async function getAllUserAndGroupList(log: ProgressLogger, searchText?: string): Promise<UserAndGroupListResult> {
+export async function getAllUserAndGroupList(log: ProgressLogger): Promise<UserAndGroupListResult> {
     log('Retrieving list of Azure groups...');
 
-    const trimmedSearchText = searchText?.trim();
-    const escapedSearchText = trimmedSearchText ? trimmedSearchText.replace(/'/g, "''") : '';
-    const usersCommand = trimmedSearchText
-        ? `& $azCli ad user list --filter "startswith(displayName,'${escapedSearchText}')" --query "[].{Id:id, DisplayName:displayName, UserPrincipalName:userPrincipalName} | [0:${AZ_LIST_LIMIT}]" --output json`
-        : `& $azCli ad user list --query "[].{Id:id, DisplayName:displayName, UserPrincipalName:userPrincipalName} | [0:${AZ_LIST_LIMIT}]" --output json`;
-
+    const usersCommand = `& $azCli ad user list --query "[].{Id:id, DisplayName:displayName, UserPrincipalName:userPrincipalName} | [0:${AZ_LIST_LIMIT}]" --output json`;
 
     const script = withAzCliCheck([
         // 1. Fetch Samples (Limited by your constant)
@@ -560,7 +479,7 @@ export async function grantPolicyToUser(log: ProgressLogger, policyName: string,
     const safePolicyName = assertPolicyName(policyName);
     log(`Start granting policy "${safePolicyName}" to user(s): ${users.join(', ')}...`);
     const teamsAppId = getTeamsAppId(log);
-    const targetUsers = users.map((user) => `'${user.replace(/'/g, "''")}'`).join(', ');
+    const targetUsers = users.map((user) => psSingleQuote(isValidGuid(String(user).trim()) ? String(user).trim() : assertEmail(String(user).trim()))).join(', ');
     const script = withTeamsLoginCheck([
         `$TargetPolicyName = ${psSingleQuote(safePolicyName)}`,
         `$TargetAppId = ${psSingleQuote(teamsAppId)}`,

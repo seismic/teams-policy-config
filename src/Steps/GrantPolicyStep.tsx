@@ -30,6 +30,7 @@ import DescriptionOutlinedIcon from '@mui/icons-material/DescriptionOutlined';
 import CheckCircleOutlineIcon from '@mui/icons-material/CheckCircleOutline';
 import EntitySelectionDialog from './EntitySelectionDialog';
 import './grantPolicyStep.scss';
+import { EMAIL_BATCH_LIMIT, isValidEmail, isValidSearchText } from '../../electron/util/validate';
 
 type UserRecord = {
     Id?: string;
@@ -123,6 +124,8 @@ export default function GrantPolicyStep({ onValuesChange, isSubmitting, initialT
     const [isCsvResolvingUsers, setIsCsvResolvingUsers] = useState(false);
     const [csvResolvedCount, setCsvResolvedCount] = useState(0);
     const [csvUnresolvedEmails, setCsvUnresolvedEmails] = useState<string[]>([]);
+    const [csvInvalidCount, setCsvInvalidCount] = useState(0);
+    const [csvTruncatedCount, setCsvTruncatedCount] = useState(0);
     const [showCsvUnresolvedModal, setShowCsvUnresolvedModal] = useState(false);
 
     const [isUserDialogOpen, setIsUserDialogOpen] = useState(false);
@@ -229,6 +232,12 @@ export default function GrantPolicyStep({ onValuesChange, isSubmitting, initialT
             return;
         }
 
+        if (!isValidSearchText(userDialogQuery)) {
+            setUserDialogOptions([]);
+            setUserDialogTotal(0);
+            return;
+        }
+
         setUserDialogLoading(true);
         window.electronAPI.searchUsers(userDialogQuery, userDialogPage)
             .then((result) => {
@@ -258,6 +267,12 @@ export default function GrantPolicyStep({ onValuesChange, isSubmitting, initialT
 
     useEffect(() => {
         if (!isGroupDialogOpen) {
+            return;
+        }
+
+        if (!isValidSearchText(groupDialogQuery)) {
+            setGroupDialogOptions([]);
+            setGroupDialogTotal(0);
             return;
         }
 
@@ -567,6 +582,8 @@ export default function GrantPolicyStep({ onValuesChange, isSubmitting, initialT
                                                         setIsCsvResolvingUsers(true);
                                                         setCsvResolvedCount(0);
                                                         setCsvUnresolvedEmails([]);
+                                                        setCsvInvalidCount(0);
+                                                        setCsvTruncatedCount(0);
 
                                                         const reader = new FileReader();
                                                         reader.onload = async (event) => {
@@ -604,7 +621,15 @@ export default function GrantPolicyStep({ onValuesChange, isSubmitting, initialT
 
                                                                 try {
                                                                     const emails = newOptions.map((option) => String(option.value));
-                                                                    const response = await window.electronAPI.resolveUsersByEmails(emails);
+                                                                    // Only well-formed addresses are sent to the main process (it re-validates
+                                                                    // strictly); anything else is reported as unresolved and never reaches a shell.
+                                                                    const wellFormedEmails = emails.filter((e) => isValidEmail(e));
+                                                                    const validEmails = wellFormedEmails.slice(0, EMAIL_BATCH_LIMIT);
+                                                                    setCsvInvalidCount(emails.length - wellFormedEmails.length);
+                                                                    setCsvTruncatedCount(wellFormedEmails.length - validEmails.length);
+                                                                    const response = validEmails.length > 0
+                                                                        ? await window.electronAPI.resolveUsersByEmails(validEmails)
+                                                                        : { success: true, data: { users: [] } };
                                                                     const resolvedUsers = Array.isArray(response?.data?.users)
                                                                         ? response.data.users
                                                                         : [];
@@ -651,6 +676,14 @@ export default function GrantPolicyStep({ onValuesChange, isSubmitting, initialT
                                                 <Typography variant="body2" color="text.secondary">
                                                     {uploadedCsvFileName}
                                                 </Typography>
+                                                {!isCsvResolvingUsers && (csvInvalidCount > 0 || csvTruncatedCount > 0) && (
+                                                    <Typography variant="caption" color="warning.main">
+                                                        {[
+                                                            csvInvalidCount > 0 ? `${csvInvalidCount} invalid email address${csvInvalidCount === 1 ? '' : 'es'} skipped` : '',
+                                                            csvTruncatedCount > 0 ? `${csvTruncatedCount} row${csvTruncatedCount === 1 ? '' : 's'} not processed (limit ${EMAIL_BATCH_LIMIT} per upload)` : '',
+                                                        ].filter(Boolean).join(' · ')}
+                                                    </Typography>
+                                                )}
                                                 {!isCsvResolvingUsers && (csvResolvedCount > 0 || csvUnresolvedEmails.length > 0) && (
                                                     <Stack direction="row" spacing={0.75} alignItems="center">
                                                         {/* Show matched users count */}
