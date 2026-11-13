@@ -458,7 +458,7 @@ ipcMain.handle('search-users', async (_event, payload: { searchText?: string; pa
   const page = typeof payload === 'string' ? 0 : payload?.page ?? 0;
 
   if (!isValidSearchText(searchText)) {
-    return { success: false, error: 'invalid-search-text', message: 'Search text exceeds maximum allowed length.', data: { users: [], total: 0 } };
+    return { success: false, error: 'invalid-search-text', message: 'Invalid search text: it exceeds the maximum allowed length or contains control characters.', data: { users: [], total: 0 } };
   }
 
   elog.log(`Searching users — query: "${searchText}", page: ${page}`);
@@ -540,7 +540,7 @@ ipcMain.handle('search-groups', async (_event, payload: { searchText?: string; p
   const page = typeof payload === 'string' ? 0 : payload?.page ?? 0;
 
   if (!isValidSearchText(searchText)) {
-    return { success: false, error: 'invalid-search-text', message: 'Search text exceeds maximum allowed length.', data: { groups: [], total: 0 } };
+    return { success: false, error: 'invalid-search-text', message: 'Invalid search text: it exceeds the maximum allowed length or contains control characters.', data: { groups: [], total: 0 } };
   }
 
   elog.log(`Searching groups — query: "${searchText}", page: ${page}`);

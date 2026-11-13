@@ -4,6 +4,10 @@
  *   MTGINGEST-5915  CSV-imported emails -> PowerShell source
  *   MTGINGEST-5918  CSV-imported emails -> az.cmd / cmd.exe on Windows
  */
+import { spawnSync } from 'node:child_process';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
 import { describe, expect, it } from 'vitest';
 import {
   SEARCH_TEXT_ENV_VAR,
@@ -188,6 +192,11 @@ describe('isValidEmail / assertEmail — strict allowlist', () => {
     '-h@x.com',
     'a@x.c;om',
     'a@x.com & calc',
+    // `!` is cmd.exe delayed expansion on the az.cmd path; `~` is kept rejected pending review.
+    'a!b@x.com',
+    '!a@x.com',
+    'a~b@x.com',
+    '~a@x.com',
     'a@x!.com',
     '(a)@x.com',
     'a\\b@x.com',
@@ -300,5 +309,85 @@ describe('buildEmailLookupScript', () => {
         expect(jsGuard.test(bad)).toBe(false);
       }
     });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Behavioural check against a real PowerShell. Skipped when pwsh is not installed.
+// `$azCli` is replaced by a fake script block that records its arguments, so we run
+// the REAL generated scripts and observe what az would have been given.
+// NOT covered: cmd.exe / az.cmd argument parsing (needs Windows) — the allowlist and the
+// in-script guard are what protect that path, and they are tested above as strings.
+// ---------------------------------------------------------------------------
+const PWSH = ['pwsh', 'powershell'].find(
+  (exe) => spawnSync(exe, ['-NoProfile', '-Command', '1'], { encoding: 'utf8' }).status === 0
+);
+
+function runPs(commands: string[], env: Record<string, string>, fakeAz: string) {
+  const script = ['$ErrorActionPreference = \'Stop\'', `$azCli = ${fakeAz}`, ...commands].join('; ');
+  const r = spawnSync(PWSH!, ['-NoProfile', '-Command', script], { encoding: 'utf8', env: { ...process.env, ...env } });
+  if (r.status !== 0) console.error(r.stderr);
+  return { status: r.status, stdout: r.stdout.trim(), stderr: r.stderr };
+}
+
+describe.skipIf(!PWSH)('generated scripts executed by a real PowerShell', () => {
+  const USERS = [
+    { Id: '1', DisplayName: "O'Brien", UserPrincipalName: 'obrien@x.com' },
+    { Id: '2', DisplayName: 'O\u2019Neil', UserPrincipalName: 'oneil@x.com' },
+    { Id: '3', DisplayName: 'Plain', UserPrincipalName: 'plain@x.com' },
+  ];
+  const fakeList = `{ ${psSingleQuote(JSON.stringify(USERS))} }`;
+
+  it.each([
+    ["O'Brien", ['1']],
+    ['O\u2019Neil', ['2']],
+    ['o', ['1', '2', '3']], // 'o' also matches the x.com domain
+  ])('legitimate search %j matches as literal text', (text, ids) => {
+    const { page, total } = buildUserSearchScripts(text, 0);
+    const r = runPs(page.commands, page.env, fakeList);
+    expect(r.status).toBe(0);
+    // ConvertTo-Json emits a bare object for a single match (the app normalises this).
+    const parsed = JSON.parse(r.stdout);
+    expect([parsed].flat().map((u: { Id: string }) => u.Id)).toEqual(ids);
+    expect(runPs(total.commands, total.env, fakeList).stdout).toBe(String(ids.length));
+  });
+
+  it.each(HOSTILE_SEARCH.map((p) => [p]))('hostile search %j executes nothing and matches nothing', (payload) => {
+    const marker = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'tpc-')), 'pwned');
+    const evil = `${payload}; New-Item '${marker}'`;
+    for (const build of [buildUserSearchScripts, buildGroupSearchScripts]) {
+      const { page, total } = build(evil, 0);
+      for (const spec of [page, total]) {
+        const r = runPs(spec.commands, spec.env, fakeList);
+        expect(r.status).toBe(0);
+        expect(['[]', '0']).toContain(r.stdout);
+      }
+    }
+    expect(fs.existsSync(marker)).toBe(false);
+  });
+
+  it('email lookup passes exactly the validated address to az as one argument', () => {
+    const emails = ['user@seismic.com', "o'brien@seismic.com", 'guest_x.com#EXT#@t.onmicrosoft.com'];
+    const { commands } = buildEmailLookupScript(emails)!;
+    // Fake az: echo its arguments back as the "user".
+    const fakeAz = `{ $global:LASTEXITCODE = 0; ConvertTo-Json -Compress @{ Id = ($args -join '|'); DisplayName = 'n'; UserPrincipalName = $args[4] } }`;
+    const r = runPs(commands, {}, fakeAz);
+    expect(r.status).toBe(0);
+    const out = JSON.parse(r.stdout) as { Id: string; UserPrincipalName: string }[];
+    expect(out.map((u) => u.UserPrincipalName)).toEqual(emails.map((e) => e.toLowerCase()));
+    for (const u of out) expect(u.Id.split('|')).toHaveLength(9); // ad user show --id <email> --query <q> --output json
+  });
+
+  it('the in-script guard blocks a hostile value even if validation were bypassed', () => {
+    const { commands } = buildEmailLookupScript(['ok@seismic.com'])!;
+    const tampered = commands.map((c) =>
+      c.startsWith('$targetEmails')
+        ? `$targetEmails = @(${['ok@seismic.com', 'a&calc@x.com', 'b\u2019;calc@x.com', 'c|d@x.com'].map(psSingleQuote).join(', ')})`
+        : c
+    );
+    const fakeAz = `{ $global:LASTEXITCODE = 0; ConvertTo-Json -Compress @{ Id = '1'; DisplayName = 'n'; UserPrincipalName = $args[4] } }`;
+    const r = runPs(tampered, {}, fakeAz);
+    expect(r.status).toBe(0);
+    expect(JSON.parse(r.stdout).UserPrincipalName).toBe('ok@seismic.com');
   });
 });
