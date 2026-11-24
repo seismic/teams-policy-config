@@ -209,7 +209,15 @@ ipcMain.handle('start-az-login', async (_event) => {
   elog.addSummary('Azure Login operation started');
 
   try {
-    const azure = await runAzLogin((msg) => { log(msg); elog.log(msg); });
+    const azure = await runAzLogin(
+      (msg) => { log(msg); elog.log(msg); },
+      (code) => {
+        // Dedicated, typed channel: the renderer never extracts codes from progress text.
+        if (/^[A-Z0-9]{6,12}$/.test(code)) {
+          _event.sender.send('az:device-code', { code });
+        }
+      }
+    );
     elog.log('Azure Login completed successfully.');
     log('Azure Login completed successfully.');
     elog.addSummary('Azure login succeeded.');

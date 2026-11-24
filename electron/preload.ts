@@ -22,5 +22,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
   onOperationProgress: (callback: (payload: { timestamp: string; message: string }) => void) =>
     ipcRenderer.on('op:progress', (_event, payload) => callback(payload)),
   clearOperationProgressListeners: () => ipcRenderer.removeAllListeners('op:progress'),
+  onAzureDeviceCode: (callback: (payload: { code: string }) => void) =>
+    ipcRenderer.on('az:device-code', (_event, payload) => callback(payload)),
+  clearAzureDeviceCodeListeners: () => ipcRenderer.removeAllListeners('az:device-code'),
   openLogsFolder: () => ipcRenderer.invoke('shell:open-logs-folder'),
 });

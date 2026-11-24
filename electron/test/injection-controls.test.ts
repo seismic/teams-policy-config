@@ -45,3 +45,15 @@ describe('isValidSearchText / assertSearchText', () => {
     expect(assertSearchText(" O'Brien ")).toBe("O'Brien");
   });
 });
+
+describe('az argument / email hardening', () => {
+  it('rejects option-like and cmd.exe-sensitive values', async () => {
+    const { assertAzArgText } = await import('../util/validate');
+    expect(isValidEmail('-oops@example.com')).toBe(false);
+    expect(isValidEmail('a%PATH%@example.com')).toBe(false);
+    for (const bad of ['a&calc', 'a"b', 'a|b', 'a^b', 'a%b', 'a$(x)', 'a`b']) {
+      expect(() => assertAzArgText(bad)).toThrow();
+    }
+    expect(assertAzArgText(" O'Brien ")).toBe("O'Brien");
+  });
+});

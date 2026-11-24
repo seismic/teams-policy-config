@@ -36,6 +36,8 @@ interface Window {
 		installHomebrew?: () => Promise<any>;
 		onOperationProgress?: (callback: (payload: { timestamp: string; message: string }) => void) => void;
 		clearOperationProgressListeners?: () => void;
+		onAzureDeviceCode?: (callback: (payload: { code: string }) => void) => void;
+		clearAzureDeviceCodeListeners?: () => void;
 		openLogsFolder?: () => Promise<any>;
 	};
 }

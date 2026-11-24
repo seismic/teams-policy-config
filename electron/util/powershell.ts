@@ -31,6 +31,10 @@ export async function runCommandWithLiveLogs(
     // (see resolveAzCliPath): with an absolute path cmd.exe performs no PATH or
     // working-directory search, which closes the binary-hijack vector (finding 1352217).
     const useWindowsShell = process.platform === 'win32';
+    if (useWindowsShell && /["%&|<>^]/.test(executable)) {
+      reject(new Error('Refusing to run an executable whose path contains shell metacharacters.'));
+      return;
+    }
     const spawnExecutable = useWindowsShell ? `"${executable}"` : executable;
 
     const child = spawn(spawnExecutable, args, {

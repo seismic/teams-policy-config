@@ -28,8 +28,8 @@ export const EMAIL_BATCH_LIMIT = 500;
 
 // Minimal structural email check — rejects obvious non-emails (local@domain.tld shape).
 // Full RFC 5322 validation happens server-side; this guards the IPC boundary.
-// Strict ASCII allowlist: no quotes (ASCII or Unicode), whitespace, control chars or shell metacharacters.
-const EMAIL_RE = /^[A-Za-z0-9._%+-]{1,64}@[A-Za-z0-9](?:[A-Za-z0-9.-]{0,253}[A-Za-z0-9])?\.[A-Za-z]{2,63}$/;
+// Strict ASCII allowlist: must start alphanumeric (so it can never look like a CLI option), no % (cmd.exe expansion), no quotes (ASCII or Unicode), whitespace, control chars or shell metacharacters.
+const EMAIL_RE = /^[A-Za-z0-9][A-Za-z0-9._+-]{0,63}@[A-Za-z0-9](?:[A-Za-z0-9.-]{0,253}[A-Za-z0-9])?\.[A-Za-z]{2,63}$/;
 
 // Control characters (incl. CR/LF/NUL) are never legitimate in search text.
 // eslint-disable-next-line no-control-regex
@@ -83,6 +83,21 @@ export function assertSearchText(value: unknown): string {
     const trimmed = typeof value === 'string' ? value.trim() : '';
     if (!isValidSearchText(trimmed)) {
         throw new Error('Invalid search text.');
+    }
+    return trimmed;
+}
+
+// Characters with special meaning to cmd.exe / PowerShell when text is passed as an argument to az.cmd.
+const AZ_ARG_UNSAFE_RE = /["%&|<>^!`$(){};\\]/;
+
+/**
+ * Like assertSearchText, for text that is passed as an argument to the Azure CLI (az.cmd on Windows
+ * is run through cmd.exe, which would interpret these characters).
+ */
+export function assertAzArgText(value: unknown): string {
+    const trimmed = assertSearchText(value);
+    if (AZ_ARG_UNSAFE_RE.test(trimmed)) {
+        throw new Error('Search text contains characters that are not allowed.');
     }
     return trimmed;
 }

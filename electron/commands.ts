@@ -1,7 +1,7 @@
 /// <reference types="node" />
 import './env';
 import { PowerShellCommandResult, ProgressLogger, runPowerShell } from './util/os-util';
-import { assertEmail, assertGroupId, assertPolicyName, assertSearchText, psSingleQuote } from './util/validate';
+import { assertAzArgText, assertEmail, assertGroupId, assertPolicyName, assertSearchText, psSingleQuote } from './util/validate';
 
 type AccessPolicy = {
     Identity?: string;
@@ -259,7 +259,7 @@ export async function grantPolicy(log: ProgressLogger, policyName: string, group
 export async function getUserList(log: ProgressLogger, searchText?: string): Promise<User[] | null> {
     log('Retrieving list of Azure users...');
 
-    const trimmedSearchText = searchText?.trim() ? assertSearchText(searchText) : undefined;
+    const trimmedSearchText = searchText?.trim() ? assertAzArgText(searchText) : undefined;
     const usersCommand = trimmedSearchText
         ? `& $azCli ad user list --filter ("startswith(displayName,'" + (${psSingleQuote(trimmedSearchText)}).Replace("'", "''") + "')") --query "[].{Id:id, DisplayName:displayName, UserPrincipalName:userPrincipalName} | [0:${AZ_LIST_LIMIT}]" --output json`
         : `& $azCli ad user list --query "[].{Id:id, DisplayName:displayName, UserPrincipalName:userPrincipalName} | [0:${AZ_LIST_LIMIT}]" --output json`;
@@ -480,7 +480,7 @@ export async function getAllGroups(log: ProgressLogger): Promise<any[] | null> {
 export async function getAllUserAndGroupList(log: ProgressLogger, searchText?: string): Promise<UserAndGroupListResult> {
     log('Retrieving list of Azure groups...');
 
-    const trimmedSearchText = searchText?.trim() ? assertSearchText(searchText) : undefined;
+    const trimmedSearchText = searchText?.trim() ? assertAzArgText(searchText) : undefined;
     const usersCommand = trimmedSearchText
         ? `& $azCli ad user list --filter ("startswith(displayName,'" + (${psSingleQuote(trimmedSearchText)}).Replace("'", "''") + "')") --query "[].{Id:id, DisplayName:displayName, UserPrincipalName:userPrincipalName} | [0:${AZ_LIST_LIMIT}]" --output json`
         : `& $azCli ad user list --query "[].{Id:id, DisplayName:displayName, UserPrincipalName:userPrincipalName} | [0:${AZ_LIST_LIMIT}]" --output json`;

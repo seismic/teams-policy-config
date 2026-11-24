@@ -16,10 +16,61 @@ export type PowerShellCommandResult = {
     stderr: string;
 };
 
+/**
+ * Well-known absolute install locations for PowerShell. Bare names such as
+ * `powershell.exe` are never spawned: on Windows CreateProcess searches the
+ * application and current directories before PATH, so a writable cwd enables a
+ * binary hijack (MTGINGEST-5916/5917).
+ */
 export function getPowerShellExecutables(): string[] {
-    return isWindows
-        ? ['powershell.exe', 'pwsh.exe', 'pwsh']
-        : ['pwsh', 'powershell'];
+    const candidates = isWindows
+        ? [
+            path.join(process.env['SystemRoot'] || 'C:\\Windows', 'System32', 'WindowsPowerShell', 'v1.0', 'powershell.exe'),
+            path.join(process.env['ProgramFiles'] || 'C:\\Program Files', 'PowerShell', '7', 'pwsh.exe'),
+        ]
+        : [
+            '/opt/homebrew/bin/pwsh',
+            '/usr/local/bin/pwsh',
+            '/usr/bin/pwsh',
+            '/usr/local/microsoft/powershell/7/pwsh',
+        ];
+    return candidates.filter((candidate) => fs.existsSync(candidate));
+}
+
+export type TrustedTool = 'winget' | 'choco' | 'brew';
+
+/**
+ * Resolves a package-manager CLI to a verified absolute path, never a bare name
+ * (no PATH or working-directory search). Returns null when it is not installed.
+ */
+export function resolveTrustedTool(tool: TrustedTool): string | null {
+    const candidates: string[] = [];
+    if (tool === 'winget') {
+        const localAppData = process.env['LOCALAPPDATA'];
+        if (localAppData) {
+            candidates.push(path.join(localAppData, 'Microsoft', 'WindowsApps', 'winget.exe'));
+        }
+    } else if (tool === 'choco') {
+        const chocoInstall = process.env['ChocolateyInstall'];
+        if (chocoInstall) {
+            candidates.push(path.join(chocoInstall, 'bin', 'choco.exe'));
+        }
+        candidates.push(path.join(process.env['ProgramData'] || 'C:\\ProgramData', 'chocolatey', 'bin', 'choco.exe'));
+    } else {
+        candidates.push('/opt/homebrew/bin/brew', '/usr/local/bin/brew', '/home/linuxbrew/.linuxbrew/bin/brew');
+    }
+    return candidates.find((candidate) => path.isAbsolute(candidate) && fs.existsSync(candidate)) ?? null;
+}
+
+/** Like resolveTrustedTool, but throws an ENOENT error when the tool is missing. */
+export function requireTrustedTool(tool: TrustedTool): string {
+    const resolved = resolveTrustedTool(tool);
+    if (!resolved) {
+        const err = new Error(`${tool} was not found.`) as NodeJS.ErrnoException;
+        err.code = 'ENOENT';
+        throw err;
+    }
+    return resolved;
 }
 
 export function getAzCliExecutables(): string[] {
@@ -38,7 +89,11 @@ export function getAzCliExecutables(): string[] {
  * @returns A new environment object with an extended PATH variable.
  */
 export function withCommonCliPath(env: NodeJS.ProcessEnv = process.env): NodeJS.ProcessEnv {
-    const existingPath = env.PATH ?? '';
+    // Drop empty and relative PATH entries (e.g. "." or ""), which resolve against the cwd.
+    const existingPath = (env.PATH ?? '')
+        .split(path.delimiter)
+        .filter((entry) => entry && path.isAbsolute(entry))
+        .join(path.delimiter);
     const extraPaths = isWindows
         ? ['C:\\Windows\\System32', 'C:\\Program Files\\PowerShell\\7', 'C:\\Program Files\\Microsoft SDKs\\Azure\\CLI2\\wbin', 'C:\\Program Files (x86)\\Microsoft SDKs\\Azure\\CLI2\\wbin']
         : ['/opt/homebrew/bin', '/usr/local/bin', '/usr/bin', '/bin'];
@@ -157,7 +212,7 @@ export async function runPowerShell(script: string, log?: ProgressLogger, comple
         try {
             // log?.(`Running PowerShell via ${executable}...`);
             const { stdout, stderr } = await execFileAsync(executable, ['-NoProfile', '-Command', script], {
-                cwd: process.cwd(),
+                cwd: getSafeCwd(),
                 env: withCommonCliPath()
             });
 
@@ -182,7 +237,9 @@ export async function runPowerShell(script: string, log?: ProgressLogger, comple
         }
     }
 
-    throw lastError ?? new Error('PowerShell executable was not found.');
+    const notFound = new Error('PowerShell executable was not found.') as NodeJS.ErrnoException;
+    notFound.code = 'ENOENT';
+    throw lastError ?? notFound;
 }
 
 /**
@@ -236,7 +293,7 @@ export async function isPowerShellInstalled(log?: ProgressLogger): Promise<boole
     for (const executable of executables) {
         try {
             await execFileAsync(executable, ['-NoProfile', '-Command', '$PSVersionTable.PSVersion.ToString()'], {
-                cwd: process.cwd(),
+                cwd: getSafeCwd(),
                 env: withCommonCliPath()
             });
             log?.(`Detected PowerShell executable: ${executable}`);
