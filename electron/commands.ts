@@ -1,7 +1,7 @@
 /// <reference types="node" />
 import './env';
 import { PowerShellCommandResult, ProgressLogger, runPowerShell } from './util/os-util';
-import { assertGroupId, assertPolicyName, psSingleQuote } from './util/validate';
+import { assertEmail, assertGroupId, assertPolicyName, assertSearchText, psSingleQuote } from './util/validate';
 
 type AccessPolicy = {
     Identity?: string;
@@ -259,10 +259,9 @@ export async function grantPolicy(log: ProgressLogger, policyName: string, group
 export async function getUserList(log: ProgressLogger, searchText?: string): Promise<User[] | null> {
     log('Retrieving list of Azure users...');
 
-    const trimmedSearchText = searchText?.trim();
-    const escapedSearchText = trimmedSearchText ? trimmedSearchText.replace(/'/g, "''") : '';
+    const trimmedSearchText = searchText?.trim() ? assertSearchText(searchText) : undefined;
     const usersCommand = trimmedSearchText
-        ? `& $azCli ad user list --filter "startswith(displayName,'${escapedSearchText}')" --query "[].{Id:id, DisplayName:displayName, UserPrincipalName:userPrincipalName} | [0:${AZ_LIST_LIMIT}]" --output json`
+        ? `& $azCli ad user list --filter ("startswith(displayName,'" + (${psSingleQuote(trimmedSearchText)}).Replace("'", "''") + "')") --query "[].{Id:id, DisplayName:displayName, UserPrincipalName:userPrincipalName} | [0:${AZ_LIST_LIMIT}]" --output json`
         : `& $azCli ad user list --query "[].{Id:id, DisplayName:displayName, UserPrincipalName:userPrincipalName} | [0:${AZ_LIST_LIMIT}]" --output json`;
     const script = withAzCliCheck([
         `$groupsJson = & $azCli ad group list --query "[].{Id:id, DisplayName:displayName} | [0:${AZ_LIST_LIMIT}]" --output json`,
@@ -302,17 +301,16 @@ export async function getUserList(log: ProgressLogger, searchText?: string): Pro
  * @returns A promise that resolves with matching users.
  */
 export async function searchUsers(log: ProgressLogger, searchText: string, page: number = 0): Promise<UserSearchResult> {
-    const trimmedSearchText = searchText?.trim() || '';
+    const trimmedSearchText = searchText?.trim() ? assertSearchText(searchText) : '';
     const safePage = Number.isFinite(page) && page >= 0 ? Math.floor(page) : 0;
     const startIndex = safePage * AZ_LIST_LIMIT;
     const endIndex = startIndex + AZ_LIST_LIMIT;
 
     log(`Searching Azure users for: "${trimmedSearchText || '<all>'}" (page ${safePage + 1})`);
 
-    const escapedSearchText = trimmedSearchText.replace(/'/g, "''");
     const usersScript = trimmedSearchText
         ? withAzCliCheck([
-            `$searchText = '${escapedSearchText}'.ToLower()`,
+            `$searchText = ${psSingleQuote(trimmedSearchText)}.ToLower()`,
             `$usersJson = & $azCli ad user list --query "[].{Id:id, DisplayName:displayName, UserPrincipalName:userPrincipalName}" --output json`,
             '$allUsers = if ($usersJson) { $usersJson | ConvertFrom-Json } else { @() }',
             '$filteredUsers = @($allUsers | Where-Object {',
@@ -326,7 +324,7 @@ export async function searchUsers(log: ProgressLogger, searchText: string, page:
         ]);
     const totalCountScript = trimmedSearchText
         ? withAzCliCheck([
-            `$searchText = '${escapedSearchText}'.ToLower()`,
+            `$searchText = ${psSingleQuote(trimmedSearchText)}.ToLower()`,
             `$usersJson = & $azCli ad user list --query "[].{Id:id, DisplayName:displayName, UserPrincipalName:userPrincipalName}" --output json`,
             '$allUsers = if ($usersJson) { $usersJson | ConvertFrom-Json } else { @() }',
             '$filteredUsers = @($allUsers | Where-Object {',
@@ -360,7 +358,8 @@ export async function searchUsers(log: ProgressLogger, searchText: string, page:
 export async function searchUsersByEmails(log: ProgressLogger, emails: string[]): Promise<User[]> {
     const normalizedEmails = (Array.isArray(emails) ? emails : [])
         .map((email) => String(email || '').trim())
-        .filter((email) => email.length > 0);
+        .filter((email) => email.length > 0)
+        .map((email) => assertEmail(email));
 
     if (normalizedEmails.length === 0) {
         return [];
@@ -368,7 +367,7 @@ export async function searchUsersByEmails(log: ProgressLogger, emails: string[])
 
     const uniqueEmails = Array.from(new Set(normalizedEmails.map((email) => email.toLowerCase())));
     const emailList = uniqueEmails
-        .map((email) => `'${email.replace(/'/g, "''")}'`)
+        .map((email) => psSingleQuote(email))
         .join(', ');
 
     log(`Resolving Azure users by email from CSV. Count: ${uniqueEmails.length}`);
@@ -403,17 +402,16 @@ export async function searchUsersByEmails(log: ProgressLogger, emails: string[])
  * @returns A promise that resolves with matching groups and total count.
  */
 export async function searchGroups(log: ProgressLogger, searchText: string, page: number = 0): Promise<GroupSearchResult> {
-    const trimmedSearchText = searchText?.trim() || '';
+    const trimmedSearchText = searchText?.trim() ? assertSearchText(searchText) : '';
     const safePage = Number.isFinite(page) && page >= 0 ? Math.floor(page) : 0;
     const startIndex = safePage * AZ_LIST_LIMIT;
     const endIndex = startIndex + AZ_LIST_LIMIT;
 
     log(`Searching Azure groups for: "${trimmedSearchText || '<all>'}" (page ${safePage + 1})`);
 
-    const escapedSearchText = trimmedSearchText.replace(/'/g, "''");
     const groupsScript = trimmedSearchText
         ? withAzCliCheck([
-            `$searchText = '${escapedSearchText}'.ToLower()`,
+            `$searchText = ${psSingleQuote(trimmedSearchText)}.ToLower()`,
             `$groupsJson = & $azCli ad group list --query "[].{Id:id, DisplayName:displayName}" --output json`,
             '$allGroups = if ($groupsJson) { $groupsJson | ConvertFrom-Json } else { @() }',
             '$filteredGroups = @($allGroups | Where-Object { $_.DisplayName -and $_.DisplayName.ToLower().Contains($searchText) })',
@@ -425,7 +423,7 @@ export async function searchGroups(log: ProgressLogger, searchText: string, page
         ]);
     const totalCountScript = trimmedSearchText
         ? withAzCliCheck([
-            `$searchText = '${escapedSearchText}'.ToLower()`,
+            `$searchText = ${psSingleQuote(trimmedSearchText)}.ToLower()`,
             `$groupsJson = & $azCli ad group list --query "[].{Id:id, DisplayName:displayName}" --output json`,
             '$allGroups = if ($groupsJson) { $groupsJson | ConvertFrom-Json } else { @() }',
             '$filteredGroups = @($allGroups | Where-Object { $_.DisplayName -and $_.DisplayName.ToLower().Contains($searchText) })',
@@ -482,10 +480,9 @@ export async function getAllGroups(log: ProgressLogger): Promise<any[] | null> {
 export async function getAllUserAndGroupList(log: ProgressLogger, searchText?: string): Promise<UserAndGroupListResult> {
     log('Retrieving list of Azure groups...');
 
-    const trimmedSearchText = searchText?.trim();
-    const escapedSearchText = trimmedSearchText ? trimmedSearchText.replace(/'/g, "''") : '';
+    const trimmedSearchText = searchText?.trim() ? assertSearchText(searchText) : undefined;
     const usersCommand = trimmedSearchText
-        ? `& $azCli ad user list --filter "startswith(displayName,'${escapedSearchText}')" --query "[].{Id:id, DisplayName:displayName, UserPrincipalName:userPrincipalName} | [0:${AZ_LIST_LIMIT}]" --output json`
+        ? `& $azCli ad user list --filter ("startswith(displayName,'" + (${psSingleQuote(trimmedSearchText)}).Replace("'", "''") + "')") --query "[].{Id:id, DisplayName:displayName, UserPrincipalName:userPrincipalName} | [0:${AZ_LIST_LIMIT}]" --output json`
         : `& $azCli ad user list --query "[].{Id:id, DisplayName:displayName, UserPrincipalName:userPrincipalName} | [0:${AZ_LIST_LIMIT}]" --output json`;
 
 
@@ -560,7 +557,7 @@ export async function grantPolicyToUser(log: ProgressLogger, policyName: string,
     const safePolicyName = assertPolicyName(policyName);
     log(`Start granting policy "${safePolicyName}" to user(s): ${users.join(', ')}...`);
     const teamsAppId = getTeamsAppId(log);
-    const targetUsers = users.map((user) => `'${user.replace(/'/g, "''")}'`).join(', ');
+    const targetUsers = users.map((user) => psSingleQuote(user)).join(', ');
     const script = withTeamsLoginCheck([
         `$TargetPolicyName = ${psSingleQuote(safePolicyName)}`,
         `$TargetAppId = ${psSingleQuote(teamsAppId)}`,
@@ -697,4 +694,4 @@ export async function grantPolicyToGlobal(log: ProgressLogger, policyName: strin
         stdout: result.stdout.trim(),
         stderr: result.stderr.trim()
     };
-}
+}
