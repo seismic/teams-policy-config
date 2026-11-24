@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { assertEmail, assertSearchText, isValidEmail, isValidSearchText, psSingleQuote } from '../util/validate';
+import { isValidUserPrincipalName, assertEmail, assertSearchText, isValidEmail, isValidSearchText, psSingleQuote } from '../util/validate';
 
 const SMART_QUOTES = ['‘', '’', '‚', '‛'];
 
@@ -55,5 +55,16 @@ describe('az argument / email hardening', () => {
       expect(() => assertAzArgText(bad)).toThrow();
     }
     expect(assertAzArgText(" O'Brien ")).toBe("O'Brien");
+  });
+});
+
+describe('isValidUserPrincipalName', () => {
+  it('accepts guest and apostrophe UPNs, rejects non-strings and oversized values', () => {
+    expect(isValidUserPrincipalName('john_example.com#EXT#@contoso.onmicrosoft.com')).toBe(true);
+    expect(isValidUserPrincipalName("o'brien@contoso.com")).toBe(true);
+    expect(isValidUserPrincipalName({ toString: () => 'a@b.com' })).toBe(false);
+    expect(isValidUserPrincipalName('no-at-sign')).toBe(false);
+    expect(isValidUserPrincipalName('a@b.com\n; calc')).toBe(false);
+    expect(isValidUserPrincipalName('a'.repeat(400) + '@b.com')).toBe(false);
   });
 });

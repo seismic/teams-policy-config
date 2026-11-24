@@ -118,6 +118,20 @@ export function isValidEmail(value: unknown): value is string {
 }
 
 /**
+ * Loose structural check for a user principal name coming from the renderer's user picker.
+ * UPNs can legitimately contain characters the strict email allowlist rejects (guest accounts use
+ * `#EXT#`, apostrophes are legal), so this only enforces type, size and no control characters;
+ * injection safety comes from psSingleQuote at the point the script is built.
+ */
+export function isValidUserPrincipalName(value: unknown): value is string {
+    return typeof value === 'string'
+        && value.trim().length > 0
+        && value.length <= 320
+        && value.includes('@')
+        && !CONTROL_CHARS_RE.test(value);
+}
+
+/**
  * Returns the trimmed group id if it is a valid GUID, otherwise throws.
  */
 export function assertGroupId(value: unknown): string {
