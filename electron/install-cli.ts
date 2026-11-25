@@ -1,6 +1,6 @@
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
-import { ProgressLogger, withCommonCliPath } from './util/os-util';
+import { getSafeCwd, ProgressLogger, requireTrustedTool, resolveTrustedTool, TrustedTool, withCommonCliPath } from './util/os-util';
 
 const execFileAsync = promisify(execFile);
 
@@ -11,9 +11,9 @@ function escapeForAppleScript(value: string): string {
 	return value.replace(/\\/g, '\\\\').replace(/"/g, '\\"');
 }
 
-async function isCommandAvailable(command: string, args: string[] = ['--version']): Promise<boolean> {
+async function isCommandAvailable(tool: TrustedTool, args: string[] = ['--version']): Promise<boolean> {
 	try {
-		await execFileAsync(command, args, { cwd: process.cwd(), env: withCommonCliPath() });
+		await execFileAsync(requireTrustedTool(tool), args, { cwd: getSafeCwd(), env: withCommonCliPath() });
 		return true;
 	} catch {
 		return false;
@@ -26,7 +26,7 @@ async function installPowerShellOnWindows(log: ProgressLogger): Promise<Record<s
 	if (wingetAvailable) {
 		try {
 			const { stdout } = await execFileAsync(
-				'winget',
+				requireTrustedTool('winget'),
 				[
 					'install',
 					'--id',
@@ -36,7 +36,7 @@ async function installPowerShellOnWindows(log: ProgressLogger): Promise<Record<s
 					'--accept-source-agreements',
 					'--accept-package-agreements'
 				],
-				{ cwd: process.cwd(), env: withCommonCliPath() }
+				{ cwd: getSafeCwd(), env: withCommonCliPath() }
 			);
 			log('PowerShell installation completed successfully.');
 
@@ -58,8 +58,8 @@ async function installPowerShellOnWindows(log: ProgressLogger): Promise<Record<s
 	const chocoAvailable = await isCommandAvailable('choco', ['--version']);
 	if (chocoAvailable) {
 		try {
-			const { stdout } = await execFileAsync('choco', ['install', 'powershell-core', '-y'], {
-				cwd: process.cwd(),
+			const { stdout } = await execFileAsync(requireTrustedTool('choco'), ['install', 'powershell-core', '-y'], {
+				cwd: getSafeCwd(),
 				env: withCommonCliPath()
 			});
 			log('PowerShell installation completed successfully.');
@@ -93,7 +93,7 @@ async function installAzureCliOnWindows(log: ProgressLogger): Promise<Record<str
 		try {
 			log('Installing Azure CLI via winget. This may take a minute — a Windows permission prompt (UAC) may appear...');
 			const { stdout } = await execFileAsync(
-				'winget',
+				requireTrustedTool('winget'),
 				[
 					'install',
 					'--id',
@@ -103,7 +103,7 @@ async function installAzureCliOnWindows(log: ProgressLogger): Promise<Record<str
 					'--accept-source-agreements',
 					'--accept-package-agreements'
 				],
-				{ cwd: process.cwd(), env: withCommonCliPath() }
+				{ cwd: getSafeCwd(), env: withCommonCliPath() }
 			);
 			log('Azure CLI installation completed successfully.');
 			return {
@@ -124,8 +124,8 @@ async function installAzureCliOnWindows(log: ProgressLogger): Promise<Record<str
 	const chocoAvailable = await isCommandAvailable('choco', ['--version']);
 	if (chocoAvailable) {
 		try {
-			const { stdout } = await execFileAsync('choco', ['install', 'azure-cli', '-y'], {
-				cwd: process.cwd(),
+			const { stdout } = await execFileAsync(requireTrustedTool('choco'), ['install', 'azure-cli', '-y'], {
+				cwd: getSafeCwd(),
 				env: withCommonCliPath()
 			});
 			return {
@@ -173,7 +173,7 @@ export async function installPowerShell(log: ProgressLogger): Promise<Record<str
 
 	try {
 		log('Checking Homebrew availability...');
-		await execFileAsync('brew', ['--version'], { cwd: process.cwd(), env: withCommonCliPath() });
+		await execFileAsync(requireTrustedTool('brew'), ['--version'], { cwd: getSafeCwd(), env: withCommonCliPath() });
 		log('Homebrew is available. Proceeding with PowerShell installation...');
 	} catch {
 		log('Homebrew is not installed. Install Homebrew from https://brew.sh and try again.');
@@ -200,8 +200,8 @@ export async function installPowerShell(log: ProgressLogger): Promise<Record<str
 	for (const attempt of attempts) {
 		try {
 			log(`Attempting PowerShell installation using ${attempt.label} method...`);
-			const { stdout } = await execFileAsync('brew', attempt.args, {
-				cwd: process.cwd(),
+			const { stdout } = await execFileAsync(requireTrustedTool('brew'), attempt.args, {
+				cwd: getSafeCwd(),
 				env: brewEnv
 			});
 			log(`PowerShell installation succeeded using ${attempt.label} method.`);
@@ -238,7 +238,7 @@ export async function installHomebrew(log: ProgressLogger): Promise<Record<strin
 	}
 
 	try {
-		await execFileAsync('brew', ['--version'], { cwd: process.cwd(), env: withCommonCliPath() });
+		await execFileAsync(requireTrustedTool('brew'), ['--version'], { cwd: getSafeCwd(), env: withCommonCliPath() });
 		log('Homebrew is already installed.');
 		return {
 			success: true,
@@ -250,11 +250,11 @@ export async function installHomebrew(log: ProgressLogger): Promise<Record<strin
 
 	try {
 		const { stdout, stderr } = await execFileAsync('/bin/bash', ['-c', HOMEBREW_INSTALL_COMMAND], {
-			cwd: process.cwd(),
+			cwd: getSafeCwd(),
 			env: withCommonCliPath()
 		});
 
-		await execFileAsync('brew', ['--version'], { cwd: process.cwd(), env: withCommonCliPath() });
+		await execFileAsync(requireTrustedTool('brew'), ['--version'], { cwd: getSafeCwd(), env: withCommonCliPath() });
 		log('Homebrew installation completed successfully.');
 		return {
 			success: true,
@@ -278,7 +278,7 @@ export async function installHomebrew(log: ProgressLogger): Promise<Record<strin
 					'-e',
 					`tell application "Terminal" to do script "${escapedTerminalScript}"`
 				],
-				{ cwd: process.cwd(), env: withCommonCliPath() }
+				{ cwd: getSafeCwd(), env: withCommonCliPath() }
 			);
 
 			log('Started Homebrew installation in Terminal. Complete it there, then retry app installation.');
@@ -321,7 +321,7 @@ export async function installAzureCli(log: ProgressLogger): Promise<Record<strin
 	}
 
 	try {
-		await execFileAsync('brew', ['--version'], { cwd: process.cwd(), env: withCommonCliPath() });
+		await execFileAsync(requireTrustedTool('brew'), ['--version'], { cwd: getSafeCwd(), env: withCommonCliPath() });
 	} catch {
 		log('Homebrew is not installed. Install Homebrew from https://brew.sh and try again.');
 		return {
@@ -339,8 +339,8 @@ export async function installAzureCli(log: ProgressLogger): Promise<Record<strin
 
 	try {
 		log('Homebrew is available. Proceeding with Azure CLI installation...');
-		const { stdout } = await execFileAsync('brew', ['install', 'azure-cli'], {
-			cwd: process.cwd(),
+		const { stdout } = await execFileAsync(requireTrustedTool('brew'), ['install', 'azure-cli'], {
+			cwd: getSafeCwd(),
 			env: brewEnv
 		});
 		log('Azure CLI installation completed successfully.');
