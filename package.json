@@ -44,7 +44,7 @@
     "sass-loader": "^16.0.7",
     "typescript": "^5.7.2",
     "vite": "^6.0.3",
-    "vitest": "^3.2.6",
+    "vitest": "^5.1.1",
     "wait-on": "^8.0.1"
   },
   "build": {
@@ -54,8 +54,13 @@
       "dist-electron/**/*",
       "dist/**/*",
       "node_modules/**/*",
-      "package.json",
-      ".env*"
+      "package.json"
+    ],
+    "extraResources": [
+      {
+        "from": ".env",
+        "to": ".env"
+      }
     ],
     "mac": {
       "icon": "build/icon.icns",

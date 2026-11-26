@@ -3,6 +3,7 @@ import { getTrustedCwd, getTrustedShell, isCmdSafePath, isTrustedPath } from './
 import {
   ProgressLogger,
 } from './os-util';
+import { createLineForwarder } from './line-buffer';
 
 /**
  * Runs a child process and streams stdout/stderr lines to the UI logger while
@@ -56,6 +57,9 @@ export async function runCommandWithLiveLogs(
 
     let stdout = '';
     let stderr = '';
+    // Per-stream line buffers: a prompt split across chunks must still reach `log` as one line.
+    const stdoutLines = createLineForwarder((line) => log?.(line));
+    const stderrLines = createLineForwarder((line) => log?.(line));
     let timedOut = false;
 
     const timeoutHandle = timeoutMs > 0
@@ -68,23 +72,13 @@ export async function runCommandWithLiveLogs(
     child.stdout.on('data', (chunk: Buffer) => {
       const text = chunk.toString();
       stdout += text;
-      for (const line of text.split(/\r?\n/)) {
-        const trimmed = line.trim();
-        if (trimmed) {
-          log?.(trimmed);
-        }
-      }
+      stdoutLines.push(text);
     });
 
     child.stderr.on('data', (chunk: Buffer) => {
       const text = chunk.toString();
       stderr += text;
-      for (const line of text.split(/\r?\n/)) {
-        const trimmed = line.trim();
-        if (trimmed) {
-          log?.(trimmed);
-        }
-      }
+      stderrLines.push(text);
     });
 
     child.on('error', (error) => {
@@ -95,6 +89,8 @@ export async function runCommandWithLiveLogs(
     });
 
     child.on('close', (code) => {
+      stdoutLines.flush();
+      stderrLines.flush();
       if (timeoutHandle) {
         clearTimeout(timeoutHandle);
       }

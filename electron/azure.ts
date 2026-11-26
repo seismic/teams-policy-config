@@ -8,6 +8,9 @@ import {
 import { notFoundMessage } from './util/trusted-exec';
 import { runCommandWithLiveLogs } from './util/powershell';
 
+const DEVICE_CODE_PROMPT_RE =
+  /^To sign in, use a web browser to open the page https:\/\/(?:microsoft\.com\/devicelogin|login\.microsoft\.com\/device) and enter the code ([A-Z0-9]{6,12}) to authenticate\.?$/;
+
 /**
  * Performs Azure device-code login and then resolves either subscription context
  * or tenant-only context (for accounts without subscription access).
@@ -16,7 +19,7 @@ import { runCommandWithLiveLogs } from './util/powershell';
  * @returns An object containing account and tenant information upon successful login.
  * @throws An error if the login process fails or times out. The error may include stdout and stderr properties with CLI output for debugging.
  */
-export async function runAzLogin(log?: ProgressLogger): Promise<{
+export async function runAzLogin(log?: ProgressLogger, onDeviceCode?: (code: string) => void): Promise<{
   accountName?: string;
   userName?: string;
   tenantId?: string;
@@ -39,10 +42,13 @@ export async function runAzLogin(log?: ProgressLogger): Promise<{
   // Parse device-code prompts from CLI output and guide the user in real time.
   const maybeHandleDeviceCodeLine = (line: string) => {
     const urlMatch = line.match(/https?:\/\/[^\s)]+/i);
-    const codeMatch = line.match(/enter the code\s+([A-Z0-9]+)/i);
+    // Only the Azure CLI's own, anchored sign-in prompt is trusted; this callback receives only
+    // az login output, never other command output (MTGINGEST-5920).
+    const codeMatch = line.trim().match(DEVICE_CODE_PROMPT_RE);
 
     if (codeMatch?.[1]) {
       lastDeviceCode = codeMatch[1];
+      onDeviceCode?.(lastDeviceCode);
       log?.(`Device code detected: ${lastDeviceCode}`);
       if (!deviceUrlOpened) {
         deviceUrlOpened = true;

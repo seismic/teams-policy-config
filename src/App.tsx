@@ -133,6 +133,7 @@ export default function App() {
 
     // Reset all state to initial values
     setCurrentStep(WizardStep.SetupEnvironment);
+    setAzureDeviceCode(null);
     setMessage('');
     setIsEnvironmentSetupComplete(false);
     setIsAzureLoginComplete(false);
@@ -308,6 +309,8 @@ export default function App() {
       const errorMessage = error instanceof Error ? error.message : 'Unknown error occurred';
       setMessage(`Azure login failed: ${errorMessage}`);
     } finally {
+      // The code is only valid while the login is in progress (success or failure).
+      setAzureDeviceCode(null);
       setIsStepLoading(false);
       setIsLoading(false);
     }
@@ -532,18 +535,21 @@ export default function App() {
   useEffect(() => {
     window.electronAPI.clearOperationProgressListeners?.();
     window.electronAPI.onOperationProgress?.(({ timestamp, message }) => {
-      const deviceCodeMatch = message.match(/Device code detected:\s*([A-Z0-9-]+)/i)
-        || message.match(/Enter this device code in browser:\s*([A-Z0-9-]+)/i);
-      if (deviceCodeMatch?.[1]) {
-        setAzureDeviceCode(deviceCodeMatch[1]);
-      }
-
       const time = new Date(timestamp).toLocaleTimeString();
       setLogs((prev) => [...prev.slice(-79), `[${time}] ${message}`]);
     });
 
+    // Device codes arrive only on a dedicated, typed channel, never from progress text.
+    window.electronAPI.clearAzureDeviceCodeListeners?.();
+    window.electronAPI.onAzureDeviceCode?.(({ code }) => {
+      if (typeof code === 'string' && /^[A-Z0-9]{6,12}$/.test(code)) {
+        setAzureDeviceCode(code);
+      }
+    });
+
     return () => {
       window.electronAPI.clearOperationProgressListeners?.();
+      window.electronAPI.clearAzureDeviceCodeListeners?.();
     };
   }, []);
 

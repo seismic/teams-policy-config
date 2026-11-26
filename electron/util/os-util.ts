@@ -54,7 +54,11 @@ export function getAzCliExecutables(): string[] {
  * @returns A new environment object with an extended PATH variable.
  */
 export function withCommonCliPath(env: NodeJS.ProcessEnv = process.env): NodeJS.ProcessEnv {
-    const existingPath = env.PATH ?? '';
+    // Drop empty and relative PATH entries (e.g. "." or ""), which resolve against the cwd.
+    const existingPath = (env.PATH ?? '')
+        .split(path.delimiter)
+        .filter((entry) => entry && path.isAbsolute(entry))
+        .join(path.delimiter);
     const extraPaths = isWindows
         ? ['C:\\Windows\\System32', 'C:\\Program Files\\PowerShell\\7', 'C:\\Program Files\\Microsoft SDKs\\Azure\\CLI2\\wbin', 'C:\\Program Files (x86)\\Microsoft SDKs\\Azure\\CLI2\\wbin']
         : ['/opt/homebrew/bin', '/usr/local/bin', '/usr/bin', '/bin'];

@@ -6,7 +6,7 @@ import { grantAccessPolicy, runPreLoginPowerShellTasks, SetupResult } from './te
 import { createEnterpriseLogger } from './util/logger/enterprise-logger';
 import { installAzureCli, installHomebrew, installPowerShell } from './install-cli';
 import { searchGroups, searchUsers, searchUsersByEmails } from './commands';
-import { EMAIL_BATCH_LIMIT, isValidEmail, isValidGuid, isValidPolicyName, isValidSearchText } from './util/validate';
+import { EMAIL_BATCH_LIMIT, isValidEmail, isValidGuid, isValidPolicyName, isValidSearchText, isValidUserPrincipalName } from './util/validate';
 import { GrantType, GRANT_TYPE_VALUES } from './util/grant-types';
 import {
   isAzCliInstalled,
@@ -209,7 +209,15 @@ ipcMain.handle('start-az-login', async (_event) => {
   elog.addSummary('Azure Login operation started');
 
   try {
-    const azure = await runAzLogin((msg) => { log(msg); elog.log(msg); });
+    const azure = await runAzLogin(
+      (msg) => { log(msg); elog.log(msg); },
+      (code) => {
+        // Dedicated, typed channel: the renderer never extracts codes from progress text.
+        if (/^[A-Z0-9]{6,12}$/.test(code)) {
+          _event.sender.send('az:device-code', { code });
+        }
+      }
+    );
     elog.log('Azure Login completed successfully.');
     log('Azure Login completed successfully.');
     elog.addSummary('Azure login succeeded.');
@@ -320,6 +328,18 @@ ipcMain.handle('grant-policy', async (_event, data) => {
         success: false,
         error: 'no-users-specified',
         message: 'At least one user must be specified for a user-type policy grant.'
+      };
+    }
+
+    if (type === GrantType.User && (users.length > EMAIL_BATCH_LIMIT || !users.every((user: unknown) => isValidUserPrincipalName(user)))) {
+      log('One or more user principal names are not valid.');
+      elog.error('One or more user principal names are not valid.');
+      elog.addSummary('Invalid user principal name provided.');
+      elog.finish(false);
+      return {
+        success: false,
+        error: 'invalid-user',
+        message: 'Each selected user must be a valid user principal name.'
       };
     }
 

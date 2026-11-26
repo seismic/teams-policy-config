@@ -28,7 +28,12 @@ export const EMAIL_BATCH_LIMIT = 500;
 
 // Minimal structural email check — rejects obvious non-emails (local@domain.tld shape).
 // Full RFC 5322 validation happens server-side; this guards the IPC boundary.
-const EMAIL_RE = /^[^\s@]{1,64}@[^\s@]{1,255}\.[^\s@]{1,63}$/;
+// Strict ASCII allowlist: must start alphanumeric (so it can never look like a CLI option), no % (cmd.exe expansion), no quotes (ASCII or Unicode), whitespace, control chars or shell metacharacters.
+const EMAIL_RE = /^[A-Za-z0-9][A-Za-z0-9._+-]{0,63}@[A-Za-z0-9](?:[A-Za-z0-9.-]{0,253}[A-Za-z0-9])?\.[A-Za-z]{2,63}$/;
+
+// Control characters (incl. CR/LF/NUL) are never legitimate in search text.
+// eslint-disable-next-line no-control-regex
+const CONTROL_CHARS_RE = /[\u0000-\u001f\u007f-\u009f\u2028\u2029]/;
 
 /**
  * Quotes a value as a PowerShell single-quoted string literal.
@@ -40,7 +45,9 @@ const EMAIL_RE = /^[^\s@]{1,64}@[^\s@]{1,255}\.[^\s@]{1,63}$/;
  * in commands.ts.
  */
 export function psSingleQuote(value: string): string {
-    return `'${String(value).replace(/'/g, "''")}'`;
+    // PowerShell treats the Unicode typographic quotes U+2018, U+2019, U+201A and U+201B
+    // as single-quote characters too, so each must be doubled exactly like the ASCII one.
+    return `'${String(value).replace(/['\u2018\u2019\u201A\u201B]/g, (q) => q + q)}'`;
 }
 
 export function isValidPolicyName(value: unknown): value is string {
@@ -66,11 +73,62 @@ export function isValidGuid(value: unknown): value is string {
 }
 
 export function isValidSearchText(value: unknown): value is string {
-    return typeof value === 'string' && value.length <= SEARCH_TEXT_MAX_LEN;
+    return typeof value === 'string' && value.length <= SEARCH_TEXT_MAX_LEN && !CONTROL_CHARS_RE.test(value);
+}
+
+/**
+ * Returns the trimmed search text if valid, otherwise throws. Use at the point a script is built.
+ */
+export function assertSearchText(value: unknown): string {
+    const trimmed = typeof value === 'string' ? value.trim() : '';
+    if (!isValidSearchText(trimmed)) {
+        throw new Error('Invalid search text.');
+    }
+    return trimmed;
+}
+
+// Characters with special meaning to cmd.exe / PowerShell when text is passed as an argument to az.cmd.
+const AZ_ARG_UNSAFE_RE = /["%&|<>^!`$(){};\\]/;
+
+/**
+ * Like assertSearchText, for text that is passed as an argument to the Azure CLI (az.cmd on Windows
+ * is run through cmd.exe, which would interpret these characters).
+ */
+export function assertAzArgText(value: unknown): string {
+    const trimmed = assertSearchText(value);
+    if (AZ_ARG_UNSAFE_RE.test(trimmed)) {
+        throw new Error('Search text contains characters that are not allowed.');
+    }
+    return trimmed;
+}
+
+/**
+ * Returns the trimmed email/UPN if it passes the strict allowlist, otherwise throws.
+ */
+export function assertEmail(value: unknown): string {
+    const trimmed = typeof value === 'string' ? value.trim() : '';
+    if (!isValidEmail(trimmed)) {
+        throw new Error('Invalid email address.');
+    }
+    return trimmed;
 }
 
 export function isValidEmail(value: unknown): value is string {
     return typeof value === 'string' && EMAIL_RE.test(value) && value.length <= 320;
+}
+
+/**
+ * Loose structural check for a user principal name coming from the renderer's user picker.
+ * UPNs can legitimately contain characters the strict email allowlist rejects (guest accounts use
+ * `#EXT#`, apostrophes are legal), so this only enforces type, size and no control characters;
+ * injection safety comes from psSingleQuote at the point the script is built.
+ */
+export function isValidUserPrincipalName(value: unknown): value is string {
+    return typeof value === 'string'
+        && value.trim().length > 0
+        && value.length <= 320
+        && value.includes('@')
+        && !CONTROL_CHARS_RE.test(value);
 }
 
 /**
