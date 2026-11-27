@@ -81,8 +81,8 @@ function withAzCliCheck(commands: string[]): string {
     return [
         "$ErrorActionPreference = 'Stop'",
         "$ProgressPreference = 'SilentlyContinue'",
-        "$azCli = (Get-Command 'az.exe' -ErrorAction SilentlyContinue).Source",
-        "if (-not $azCli) { $azCli = (Get-Command 'az' -ErrorAction Stop).Source }",
+        "$azCli = $env:TPC_AZ_CLI",
+        "if (-not $azCli) { throw 'Azure CLI was not found in a trusted location.' }",
         ...commands
     ].join('; ');
 }
