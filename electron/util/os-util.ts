@@ -8,6 +8,7 @@ import {
     isCmdSafePath,
     getTrustedCwd,
     getToolCandidates,
+    resolveAllTrustedTools,
     resolveTrustedTool,
     notFoundMessage,
     validateLookupResult,
@@ -32,12 +33,9 @@ export type PowerShellCommandResult = {
  */
 export function getPowerShellExecutables(): string[] {
     const tools = isWindows ? (['powershell', 'pwsh'] as const) : (['pwsh'] as const);
-    const found: string[] = [];
-    for (const tool of tools) {
-        const resolved = resolveTrustedTool(tool);
-        if (resolved) found.push(resolved);
-    }
-    return found;
+    // Return ALL existing candidates (not just the first per tool) so callers can fall back to a
+    // later working one when an earlier candidate fails with ENOENT.
+    return tools.flatMap((tool) => resolveAllTrustedTools(tool));
 }
 
 export function getAzCliExecutables(): string[] {

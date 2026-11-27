@@ -202,6 +202,15 @@ export function resolveTrustedTool(tool: ToolName, ctx: ResolveContext = default
     return null;
 }
 
+/**
+ * Every existing trusted candidate for a tool, in preference order. Callers that can
+ * fall back on ENOENT (a candidate whose interpreter or target is missing) use this
+ * instead of resolveTrustedTool, which returns only the first.
+ */
+export function resolveAllTrustedTools(tool: ToolName, ctx: ResolveContext = defaultContext()): string[] {
+    return getToolCandidates(tool, ctx).filter((candidate) => isTrustedPath(candidate, ctx) && ctx.exists(candidate));
+}
+
 /** Accepts a path found by a PATH lookup only if it is trusted, exists, and is an expected file type. */
 export function validateLookupResult(found: string | undefined, ctx: ResolveContext = defaultContext()): string | null {
     if (!found) return null;

@@ -24,6 +24,7 @@ import {
   getTrustedCwd,
   isTrustedPath,
   notFoundMessage,
+  resolveAllTrustedTools,
   resolveTrustedTool,
   validateLookupResult,
   type ResolveContext,
@@ -297,6 +298,68 @@ describe('Copilot review: dangling symlinks and %VAR% in accepted .cmd paths', (
     await os2.runPowerShell('x');
     const psCall = execFileMock.mock.calls.find((c) => c[0] === ps)!;
     expect(psCall[2].env.TPC_AZ_CLI).toBe('');
+  });
+});
+
+describe('Copilot review 2: PowerShell candidate fallback', () => {
+  const origPlatform = Object.getOwnPropertyDescriptor(process, 'platform')!;
+  afterEach(() => {
+    Object.defineProperty(process, 'platform', origPlatform);
+    vi.restoreAllMocks();
+  });
+
+  it('resolveAllTrustedTools returns every existing trusted candidate in preference order', () => {
+    const ctx: ResolveContext = { platform: 'linux', env: {}, exists: (p) => ['/usr/local/bin/pwsh', '/usr/bin/pwsh'].includes(p) };
+    expect(resolveAllTrustedTools('pwsh', ctx)).toEqual(['/usr/local/bin/pwsh', '/usr/bin/pwsh']);
+    expect(resolveTrustedTool('pwsh', ctx)).toBe('/usr/local/bin/pwsh');
+  });
+
+  it('runPowerShell falls back to a later candidate when the first fails with ENOENT', async () => {
+    vi.resetModules();
+    execFileMock.mockReset();
+    vi.spyOn(fs, 'existsSync').mockImplementation((p) => ['/usr/local/bin/pwsh', '/usr/bin/pwsh'].includes(String(p)));
+    execFileMock.mockImplementation(async (file: string) => {
+      if (file === '/usr/local/bin/pwsh') throw Object.assign(new Error('spawn ENOENT'), { code: 'ENOENT' });
+      return { stdout: file === '/usr/bin/which' ? '' : 'ok', stderr: '' };
+    });
+    const os2 = await import('../util/os-util');
+    expect(os2.getPowerShellExecutables()).toEqual(['/usr/local/bin/pwsh', '/usr/bin/pwsh']);
+    const result = await os2.runPowerShell('x');
+    expect(result.executable).toBe('/usr/bin/pwsh');
+  });
+
+  it('runPowerShell does NOT retry on an ordinary script failure', async () => {
+    vi.resetModules();
+    execFileMock.mockReset();
+    vi.spyOn(fs, 'existsSync').mockImplementation((p) => ['/usr/local/bin/pwsh', '/usr/bin/pwsh'].includes(String(p)));
+    execFileMock.mockImplementation(async (file: string) => {
+      if (file === '/usr/local/bin/pwsh') throw Object.assign(new Error('script failed'), { code: 1 });
+      return { stdout: file === '/usr/bin/which' ? '' : 'ok', stderr: '' };
+    });
+    const os2 = await import('../util/os-util');
+    await expect(os2.runPowerShell('x')).rejects.toThrow('script failed');
+    expect(execFileMock.mock.calls.some((c) => c[0] === '/usr/bin/pwsh')).toBe(false);
+  });
+
+  it('isPowerShellInstalled falls back past an ENOENT candidate', async () => {
+    vi.resetModules();
+    execFileMock.mockReset();
+    vi.spyOn(fs, 'existsSync').mockImplementation((p) => ['/usr/local/bin/pwsh', '/usr/bin/pwsh'].includes(String(p)));
+    execFileMock.mockImplementation(async (file: string) => {
+      if (file === '/usr/local/bin/pwsh') throw Object.assign(new Error('spawn ENOENT'), { code: 'ENOENT' });
+      return { stdout: '7.4.0', stderr: '' };
+    });
+    const os2 = await import('../util/os-util');
+    expect(await os2.isPowerShellInstalled()).toBe(true);
+    expect(execFileMock.mock.calls.some((c) => c[0] === '/usr/bin/pwsh')).toBe(true);
+  });
+
+  it('Windows: both PowerShell 7 candidates are offered after Windows PowerShell', () => {
+    const ps = 'C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe';
+    const p7 = 'C:\\Program Files\\PowerShell\\7\\pwsh.exe';
+    const prev = 'C:\\Program Files\\PowerShell\\7-preview\\pwsh.exe';
+    expect(resolveAllTrustedTools('pwsh', winCtx([p7, prev]))).toEqual([p7, prev]);
+    expect(resolveAllTrustedTools('powershell', winCtx([ps]))).toEqual([ps]);
   });
 });
 
