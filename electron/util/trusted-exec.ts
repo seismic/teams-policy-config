@@ -27,14 +27,19 @@ export type ResolveContext = {
 
 /**
  * existsSync can report false for Windows App Execution Aliases (winget.exe is a
- * zero-byte reparse point that stat() cannot follow), so fall back to lstat,
- * which inspects the link itself.
+ * zero-byte reparse point that stat() cannot follow), so fall back to lstat, which
+ * inspects the link itself. The fallback is limited to that one Windows alias: on
+ * macOS/Linux lstat would treat a dangling symlink (for example a stale
+ * /usr/local/bin/pwsh) as installed and shadow a working later candidate.
  */
 function fileExists(p: string): boolean {
     try {
         if (fs.existsSync(p)) return true;
-        fs.lstatSync(p);
-        return true;
+        if (process.platform === 'win32' && /[\\/]winget\.exe$/i.test(p)) {
+            fs.lstatSync(p);
+            return true;
+        }
+        return false;
     } catch {
         return false;
     }
@@ -201,6 +206,9 @@ export function resolveTrustedTool(tool: ToolName, ctx: ResolveContext = default
 export function validateLookupResult(found: string | undefined, ctx: ResolveContext = defaultContext()): string | null {
     if (!found) return null;
     if (ctx.platform === 'win32' && !/\.(exe|cmd)$/i.test(found)) return null;
+    // A .cmd is run through cmd.exe (also from PowerShell via $env:TPC_AZ_CLI), where %NAME% and
+    // other metacharacters are expanded, so the validated path could change at launch time.
+    if (ctx.platform === 'win32' && /\.cmd$/i.test(found) && !isCmdSafePath(found)) return null;
     return isTrustedPath(found, ctx) && ctx.exists(found) ? found : null;
 }
 

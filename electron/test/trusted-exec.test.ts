@@ -248,6 +248,58 @@ describe('platform-appropriate not-found messages', () => {
   });
 });
 
+describe('Copilot review: dangling symlinks and %VAR% in accepted .cmd paths', () => {
+  const origPlatform = Object.getOwnPropertyDescriptor(process, 'platform')!;
+  afterEach(() => {
+    Object.defineProperty(process, 'platform', origPlatform);
+    vi.restoreAllMocks();
+  });
+
+  it('posix: a dangling symlink candidate does not shadow a working later candidate', async () => {
+    vi.resetModules();
+    vi.spyOn(fs, 'existsSync').mockImplementation((p) => String(p) === '/usr/bin/pwsh'); // /usr/local/bin/pwsh dangles
+    vi.spyOn(fs, 'lstatSync').mockImplementation((() => ({}) as any) as any); // lstat would "succeed" for the dangling link
+    const mod = await import('../util/trusted-exec');
+    expect(mod.resolveTrustedTool('pwsh')).toBe('/usr/bin/pwsh');
+  });
+
+  it('posix: only a dangling symlink present -> not found', async () => {
+    vi.resetModules();
+    vi.spyOn(fs, 'existsSync').mockReturnValue(false);
+    vi.spyOn(fs, 'lstatSync').mockImplementation((() => ({}) as any) as any);
+    const mod = await import('../util/trusted-exec');
+    expect(mod.resolveTrustedTool('pwsh')).toBeNull();
+  });
+
+  it.each(['C:\\Program Files\\%TEMP%\\az.cmd', 'C:\\Program Files\\a&b\\az.cmd', 'C:\\Program Files\\a^b\\az.cmd'])(
+    'validateLookupResult rejects trusted-root .cmd %s (never cached or exported as TPC_AZ_CLI)',
+    (p) => {
+      expect(validateLookupResult(p, winCtx([p]))).toBeNull();
+    },
+  );
+
+  it('still accepts a normal trusted .cmd and an .exe', () => {
+    const cmd = 'C:\\Program Files (x86)\\Microsoft SDKs\\Azure\\CLI2\\wbin\\az.cmd';
+    expect(validateLookupResult(cmd, winCtx([cmd]))).toBe(cmd);
+    const exe = 'C:\\Program Files\\Azure\\az.exe';
+    expect(validateLookupResult(exe, winCtx([exe]))).toBe(exe);
+  });
+
+  it('runPowerShell never exports a %VAR% az.cmd path as TPC_AZ_CLI (win32, where.exe returns it)', async () => {
+    vi.resetModules();
+    execFileMock.mockReset();
+    const evil = 'C:\\Program Files\\%TEMP%\\az.cmd';
+    const ps = 'C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe';
+    vi.spyOn(fs, 'existsSync').mockImplementation((p) => [evil, ps].includes(String(p)));
+    execFileMock.mockImplementation(async (file: string) => (/where\.exe$/i.test(file) ? { stdout: `${evil}\r\n`, stderr: '' } : { stdout: 'ok', stderr: '' }));
+    Object.defineProperty(process, 'platform', { value: 'win32' });
+    const os2 = await import('../util/os-util');
+    await os2.runPowerShell('x');
+    const psCall = execFileMock.mock.calls.find((c) => c[0] === ps)!;
+    expect(psCall[2].env.TPC_AZ_CLI).toBe('');
+  });
+});
+
 describe('cmd.exe metacharacters and error text', () => {
   it.each(['C:\\x\\a%b.cmd', 'C:\\x\\a&b.cmd', 'C:\\x\\a^b.cmd', 'C:\\x\\a!b.cmd', 'C:\\x\\a"b.cmd'])('isCmdSafePath rejects %s', (p) => expect(isCmdSafePath(p)).toBe(false));
   it('accepts Program Files (x86) paths', () => expect(isCmdSafePath('C:\\Program Files (x86)\\Microsoft SDKs\\Azure\\CLI2\\wbin\\az.cmd')).toBe(true));
